@@ -3,6 +3,7 @@
 #include "channel-plugin.h"
 #include "context.h"
 #include "utils/macro.h"
+#include "utils/common-macro.h"
 
 
 /* -------------------------------------------------------------------------- */
@@ -13,58 +14,24 @@ static void pomelo_webrtc_plugin_session_receive_callback(
     size_t argc,
     pomelo_webrtc_variant_t * args
 ) {
-    assert(argc == 4);
+    assert(argc == 1);
     assert(args != NULL);
 
-    pomelo_plugin_t * plugin = args[0].ptr;
-    pomelo_session_t * native_session = args[1].ptr;
-
-    pomelo_webrtc_session_t * session =
-        plugin->session_get_private(plugin, native_session);
-    size_t channel_index = args[2].size;
-    rtc_buffer_t * buffer = args[3].ptr;
-
-    pomelo_webrtc_channel_t * channel = NULL;
-    pomelo_array_get(session->channels, channel_index, &channel);
-    assert(channel != NULL);
-
-    // Unref the buffer and channel
-    rtc_buffer_unref(buffer);
-    pomelo_webrtc_channel_unref(channel);
+    pomelo_webrtc_recv_command_t * command = args[0].ptr;
+    pomelo_webrtc_channel_receive_complete(command->channel, command);
 }
 
 
 void POMELO_PLUGIN_CALL pomelo_webrtc_plugin_session_receive(
     pomelo_plugin_t * plugin,
-    pomelo_session_t * native_session,
-    size_t channel_index,
-    void * callback_data,
-    pomelo_message_t * message,
-    pomelo_plugin_error_t error
+    pomelo_webrtc_recv_command_t * command
 ) {
-    // `message` is only available inside this function
     assert(plugin != NULL);
-    assert(callback_data != NULL);
+    assert(command != NULL);
 
-    if (error == POMELO_PLUGIN_ERROR_OK) {
-        assert(message != NULL);
+    pomelo_webrtc_plugin_channel_receive(plugin, command);
 
-        rtc_buffer_t * buffer = callback_data;
-        plugin->message_write(
-            plugin,
-            message,
-            rtc_buffer_size(buffer),
-            rtc_buffer_data(buffer)
-        );
-    }
-
-    pomelo_webrtc_variant_t args[] = {
-        { .ptr = plugin },
-        { .ptr = native_session },
-        { .size = channel_index },
-        { .ptr = callback_data }
-    };
-
+    pomelo_webrtc_variant_t args[] = {{ .ptr = command }};
     pomelo_webrtc_context_t * context = plugin->get_data(plugin);
     pomelo_webrtc_context_submit_task(
         context,
@@ -89,6 +56,7 @@ static void pomelo_webrtc_plugin_session_send_callback(
 
     pomelo_webrtc_session_t * session =
         plugin->session_get_private(plugin, native_session);
+    assert(session != NULL);
     
     pomelo_webrtc_channel_t * channel = NULL;
     pomelo_array_get(session->channels, channel_index, &channel);
@@ -124,7 +92,7 @@ void POMELO_PLUGIN_CALL pomelo_webrtc_plugin_session_send(
         return; // Failed to acquire new buffer
     }
 
-    if (plugin->message_read(plugin, message, length, data) < 0) {
+    if (plugin->message_read(plugin, message, data, length) < 0) {
         return; // Failed to read
     }
 
@@ -147,3 +115,32 @@ void POMELO_PLUGIN_CALL pomelo_webrtc_plugin_session_send(
     }
 }
 
+
+/* -------------------------------------------------------------------------- */
+/*                            Private APIs                                    */
+/* -------------------------------------------------------------------------- */
+
+void pomelo_webrtc_plugin_channel_receive(
+    pomelo_plugin_t * plugin,
+    pomelo_webrtc_recv_command_t * command
+) {
+    pomelo_message_t * native_message = plugin->message_acquire(plugin);
+    if (!native_message) return; // Failed to acquire message
+
+    rtc_buffer_t * message = command->message;
+
+    int ret = plugin->message_write(
+        plugin,
+        native_message,
+        rtc_buffer_data(message),
+        rtc_buffer_size(message)
+    );
+    if (ret < 0) return; // Failed to write message
+
+    plugin->session_receive(
+        plugin,
+        command->native_session,
+        command->channel->index,
+        native_message
+    );
+}

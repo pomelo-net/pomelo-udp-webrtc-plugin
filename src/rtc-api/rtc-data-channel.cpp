@@ -85,7 +85,7 @@ bool RTCDataChannel::send(const uint8_t * message, size_t length) {
     assert(message != nullptr);
     auto data = reinterpret_cast<const std::byte *>(message);
     try {
-        return dc->send(rtc::binary(data, data + length));
+        return dc->send(data, length);
     } catch (std::exception ex) {
         context->handle_exception(ex);
         return false;

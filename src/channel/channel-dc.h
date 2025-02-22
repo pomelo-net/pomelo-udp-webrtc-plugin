@@ -13,14 +13,17 @@ extern "C" {
 /// @brief Handle DC on opened
 void pomelo_webrtc_dc_on_open(rtc_data_channel_t * dc);
 
+
 /// @brief Handle DC on closed
 void pomelo_webrtc_dc_on_closed(rtc_data_channel_t * dc);
+
 
 /// @brief Handle DC on error
 void pomelo_webrtc_dc_on_error(
     rtc_data_channel_t * dc,
     const char * error
 );
+
 
 /// @brief Handle DC message
 void pomelo_webrtc_dc_on_message(
@@ -35,16 +38,20 @@ void pomelo_webrtc_dc_on_message(
 /// @brief Initialize DC part of channel
 int pomelo_webrtc_channel_dc_init(pomelo_webrtc_channel_t * channel);
 
-/// @brief Finalize DC part of channel
-void pomelo_webrtc_channel_dc_finalize(pomelo_webrtc_channel_t * channel);
+
+/// @brief Cleanup DC part of channel
+void pomelo_webrtc_channel_dc_cleanup(pomelo_webrtc_channel_t * channel);
+
 
 /// @brief Close DC part of channel
 void pomelo_webrtc_channel_dc_close(pomelo_webrtc_channel_t * channel);
+
 
 /// @brief Enable DC receiving
 void pomelo_webrtc_channel_dc_enable_receiving(
     pomelo_webrtc_channel_t * channel
 );
+
 
 /// @brief Set the incoming DC
 void pomelo_webrtc_channel_dc_set_incoming_data_channel(

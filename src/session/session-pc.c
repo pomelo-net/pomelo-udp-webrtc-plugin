@@ -1,6 +1,6 @@
 #include <assert.h>
 #include <string.h>
-#include "utils/macro.h"
+#include "utils/common-macro.h"
 #include "channel/channel.h"
 #include "socket/socket.h"
 #include "session-pc.h"
@@ -274,7 +274,7 @@ int pomelo_webrtc_session_pc_init(pomelo_webrtc_session_t * session) {
 }
 
 
-void pomelo_webrtc_session_pc_finalize(pomelo_webrtc_session_t * session) {
+void pomelo_webrtc_session_pc_cleanup(pomelo_webrtc_session_t * session) {
     assert(session != NULL);
     if (session->pc) {
         rtc_peer_connection_destroy(session->pc);

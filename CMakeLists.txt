@@ -1,17 +1,49 @@
 cmake_minimum_required(VERSION 3.10)
 project(pomelo-udp-webrtc-plugin VERSION 1.0.0)
 
+# This project uses some parts of pomelo-udp-native: base, crypto and utils
+
 set(POMELO_WEBRTC_NAME pomelo-udp-webrtc-plugin)
 set(POMELO_WEBRTC_SRC
-    src/base/address.c
-    src/base/allocator.c
-    src/base/payload.c
-    src/base/payload.h
-    src/base/ref.c
-    src/base/ref.h
-    src/base/rtt.c
-    src/base/rtt.h
-    
+    # Headers
+    deps/pomelo-udp-native/include/pomelo/address.h
+    deps/pomelo-udp-native/include/pomelo/allocator.h
+    deps/pomelo-udp-native/include/pomelo/base64.h
+    deps/pomelo-udp-native/include/pomelo/common.h
+    deps/pomelo-udp-native/include/pomelo/constants.h
+    deps/pomelo-udp-native/include/pomelo/plugin.h
+    deps/pomelo-udp-native/include/pomelo/statistic/statistic-allocator.h
+
+    # Base
+    deps/pomelo-udp-native/src/base/address.c
+    deps/pomelo-udp-native/src/base/allocator.c
+    deps/pomelo-udp-native/src/base/allocator.h
+    deps/pomelo-udp-native/src/base/payload.c
+    deps/pomelo-udp-native/src/base/payload.h
+    deps/pomelo-udp-native/src/base/ref.c
+    deps/pomelo-udp-native/src/base/ref.h
+
+    # Base64
+    deps/pomelo-udp-native/src/crypto/base64.c
+
+    # Utils
+    deps/pomelo-udp-native/src/utils/array.c
+    deps/pomelo-udp-native/src/utils/array.h
+    deps/pomelo-udp-native/src/utils/atomic.c
+    deps/pomelo-udp-native/src/utils/atomic.h
+    deps/pomelo-udp-native/src/utils/list.c
+    deps/pomelo-udp-native/src/utils/macro.h
+    deps/pomelo-udp-native/src/utils/map.c
+    deps/pomelo-udp-native/src/utils/map.h
+    deps/pomelo-udp-native/src/utils/mutex.c
+    deps/pomelo-udp-native/src/utils/mutex.h
+    deps/pomelo-udp-native/src/utils/pool.c
+    deps/pomelo-udp-native/src/utils/pool.h
+    deps/pomelo-udp-native/src/utils/rtt.c
+    deps/pomelo-udp-native/src/utils/rtt.c
+    deps/pomelo-udp-native/src/utils/sampling.c
+    deps/pomelo-udp-native/src/utils/sampling.h
+
     src/channel/channel-dc.c
     src/channel/channel-dc.h
     src/channel/channel.c
@@ -19,18 +51,8 @@ set(POMELO_WEBRTC_SRC
     src/channel/channel-int.h
     src/channel/channel-plugin.c
     src/channel/channel-plugin.h
-    src/channel/channel-pool.c
-    src/channel/channel-pool.h
     src/channel/channel.c
     src/channel/channel.h
-
-    src/codec/packed.c
-    src/codec/packed.h
-
-    src/pomelo/address.h
-    src/pomelo/allocator.h
-    src/pomelo/common.h
-    src/pomelo/plugin.h
 
     src/rtc-api/rtc-api.cpp
     src/rtc-api/rtc-api.h
@@ -59,8 +81,6 @@ set(POMELO_WEBRTC_SRC
     src/session/session-pc.h
     src/session/session-plugin.c
     src/session/session-plugin.h
-    src/session/session-pool.c
-    src/session/session-pool.h
     src/session/session-ws.c
     src/session/session-ws.h
     src/session/session.c
@@ -69,30 +89,12 @@ set(POMELO_WEBRTC_SRC
     src/socket/socket-int.h
     src/socket/socket-plugin.c
     src/socket/socket-plugin.h
-    src/socket/socket-pool.c
-    src/socket/socket-pool.h
     src/socket/socket-wss.c
     src/socket/socket-wss.h
     src/socket/socket.c
     src/socket/socket.h
 
-    src/utils/array.c
-    src/utils/array.h
-    src/utils/atomic.c
-    src/utils/atomic.h
-    src/utils/base64.c
-    src/utils/base64.h
-    src/utils/list.c
-    src/utils/list.h
-    src/utils/map.c
-    src/utils/map.h
-    src/utils/mutex.c
-    src/utils/mutex.h
-    src/utils/pool.c
-    src/utils/pool.h
-    src/utils/sampling.c
-    src/utils/sampling.h
-    src/utils/string-buffer.c
+    src/utils/common-macro.h
     src/utils/string-buffer.c
     src/utils/string-buffer.h
 
@@ -101,7 +103,6 @@ set(POMELO_WEBRTC_SRC
     src/plugin.c
     src/plugin.h
 )
-
 
 # Settings for libdatachannel
 option(BUILD_SHARED_LIBS "" OFF)
@@ -114,14 +115,30 @@ option(LIBUV_BUILD_SHARED OFF)
 add_subdirectory(deps/libdatachannel)
 add_subdirectory(deps/libuv)
 
-set(SODIUM_INCLUDE
-    deps/libsodium/src/libsodium
-    deps/libsodium/src/libsodium/include/sodium
+set(POMELO_INCLUDE
+    deps/pomelo-udp-native/include
+    deps/pomelo-udp-native/src
 )
 
+# Sodium
+set(SODIUM_INCLUDE
+    deps/libsodium/src/libsodium
+    deps/libsodium/src/libsodium/include
+    deps/libsodium/src/libsodium/include/sodium
+)
+set(SODIUM_SRC
+    deps/libsodium/src/libsodium/sodium/codecs.c
+    src/utils/sodium.c
+)
+set(SODIUM_DEFINES DEV_MODE=0 CONFIGURED=1)
+add_library(sodium STATIC ${SODIUM_SRC})
+target_include_directories(sodium PUBLIC ${SODIUM_INCLUDE})
+target_compile_definitions(sodium PRIVATE ${SODIUM_DEFINES})
+
+
 add_library(${POMELO_WEBRTC_NAME} SHARED ${POMELO_WEBRTC_SRC})
-target_include_directories(${POMELO_WEBRTC_NAME} PUBLIC src ${SODIUM_INCLUDE})
-target_link_libraries(${POMELO_WEBRTC_NAME} PUBLIC datachannel-static uv_a)
+target_include_directories(${POMELO_WEBRTC_NAME} PUBLIC src ${SODIUM_INCLUDE} ${POMELO_INCLUDE})
+target_link_libraries(${POMELO_WEBRTC_NAME} PUBLIC datachannel-static uv_a sodium)
 set_target_properties(${POMELO_WEBRTC_NAME} PROPERTIES CXX_STANDARD 17)
 
 
@@ -140,6 +157,6 @@ endif()
 
 target_compile_options(${POMELO_WEBRTC_NAME} PRIVATE ${POMELO_COMPILE_FLAGS})
 target_compile_definitions(${POMELO_WEBRTC_NAME} PRIVATE
-    POMELO_MULTI_THREAD=1
     POMELO_PLUGIN_WEBRTC_ENABLED_LOG=1
+    ${SODIUM_DEFINES}
 )

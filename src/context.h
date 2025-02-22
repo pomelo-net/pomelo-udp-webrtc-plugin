@@ -6,6 +6,7 @@
 #include "utils/pool.h"
 #include "utils/list.h"
 #include "utils/atomic.h"
+#include "utils/string-buffer.h"
 #include "rtc-api/rtc-api.h"
 
 
@@ -29,6 +30,9 @@ struct pomelo_webrtc_context_s {
 
     /// @brief Socket map of private data
     pomelo_map_t * socket_map;
+
+    /// @brief Number of running sockets
+    pomelo_atomic_uint64_t running_sockets;
 
     /// @brief Pool of string buffers
     pomelo_pool_t * string_buffer_pool;
@@ -71,6 +75,9 @@ struct pomelo_webrtc_context_s {
 
     /// @brief Pool of worker tasks
     pomelo_pool_t * worker_tasks_pool;
+
+    /// @brief Pool of received commands
+    pomelo_pool_t * recv_command_pool;
 };
 
 
@@ -94,9 +101,6 @@ struct pomelo_webrtc_scheduled_task_s {
     uv_timer_t timer;
 };
 
-/// @brief Scheduled task
-typedef struct pomelo_webrtc_scheduled_task_s pomelo_webrtc_scheduled_task_t;
-
 
 struct pomelo_webrtc_worker_task_s {
     /// @brief Base task
@@ -109,8 +113,17 @@ struct pomelo_webrtc_worker_task_s {
     uv_work_t work;
 };
 
-/// @brief Worker task
-typedef struct pomelo_webrtc_worker_task_s pomelo_webrtc_worker_task_t;
+
+struct pomelo_webrtc_recv_command_s {
+    /// @brief RTC message
+    rtc_buffer_t * message;
+
+    /// @brief Session
+    pomelo_session_t * native_session;
+
+    /// @brief Channel
+    pomelo_webrtc_channel_t * channel;
+};
 
 /* -------------------------------------------------------------------------- */
 /*                               Public APIs                                  */
@@ -122,8 +135,10 @@ pomelo_webrtc_context_t * pomelo_webrtc_context_create(
     pomelo_plugin_t * plugin
 );
 
+
 /// @brief Destroy the context of webrtc plugin
 void pomelo_webrtc_context_destroy(pomelo_webrtc_context_t * context);
+
 
 /// @brief Submit task to run in main event loop
 pomelo_webrtc_task_t * pomelo_webrtc_context_submit_task(
@@ -132,6 +147,7 @@ pomelo_webrtc_task_t * pomelo_webrtc_context_submit_task(
     size_t argc,
     pomelo_webrtc_variant_t * args
 );
+
 
 /// @brief Schedule a task to run periodically. This function is non-threadsafe
 pomelo_webrtc_task_t * pomelo_webrtc_context_schedule_task(
@@ -142,11 +158,13 @@ pomelo_webrtc_task_t * pomelo_webrtc_context_schedule_task(
     uint64_t interval_ms
 );
 
+
 /// @brief Unschedule a scheduled task. This function is non-threadsafe
 void pomelo_webrtc_context_unschedule_task(
     pomelo_webrtc_context_t * context,
     pomelo_webrtc_task_t * task
 );
+
 
 /// @brief Spawn a task to run in worker thread. After complete, call the
 /// provided callback in main thread
@@ -159,6 +177,61 @@ pomelo_webrtc_task_t * pomelo_webrtc_context_spawn_task(
 );
 
 
+/// @brief Acquire a string buffer from pool
+pomelo_string_buffer_t * pomelo_webrtc_context_acquire_string_buffer(
+    pomelo_webrtc_context_t * context
+);
+
+
+/// @brief Release a string buffer to pool
+void pomelo_webrtc_context_release_string_buffer(
+    pomelo_webrtc_context_t * context,
+    pomelo_string_buffer_t * buffer
+);
+
+
+/// @brief Acquire a socket from pool
+pomelo_webrtc_socket_t * pomelo_webrtc_context_acquire_socket(
+    pomelo_webrtc_context_t * context,
+    pomelo_webrtc_socket_info_t * info
+);
+
+
+/// @brief Release a socket to pool
+void pomelo_webrtc_context_release_socket(
+    pomelo_webrtc_context_t * context,
+    pomelo_webrtc_socket_t * socket
+);
+
+
+/// @brief Acquire a session from pool
+pomelo_webrtc_session_t * pomelo_webrtc_context_acquire_session(
+    pomelo_webrtc_context_t * context,
+    pomelo_webrtc_session_info_t * info
+);
+
+
+/// @brief Release a session to pool
+void pomelo_webrtc_context_release_session(
+    pomelo_webrtc_context_t * context,
+    pomelo_webrtc_session_t * session
+);
+
+
+/// @brief Acquire a channel from pool
+pomelo_webrtc_channel_t * pomelo_webrtc_context_acquire_channel(
+    pomelo_webrtc_context_t * context,
+    pomelo_webrtc_channel_info_t * info
+);
+
+
+/// @brief Release a channel to pool
+void pomelo_webrtc_context_release_channel(
+    pomelo_webrtc_context_t * context,
+    pomelo_webrtc_channel_t * channel
+);
+
+
 /* -------------------------------------------------------------------------- */
 /*                              Private APIs                                  */
 /* -------------------------------------------------------------------------- */
@@ -166,20 +239,26 @@ pomelo_webrtc_task_t * pomelo_webrtc_context_spawn_task(
 /// @brief Thread entry of this plugin
 void pomelo_webrtc_thread_entry(pomelo_webrtc_context_t * context);
 
+
 /// @brief Shutdown main thread
 void pomelo_webrtc_thread_shutdown(pomelo_webrtc_context_t * context);
+
 
 /// @brief Async tasks handler
 void pomelo_webrtc_async_task_callback(uv_async_t * async);
 
+
 /// @brief Async shutdown handler
 void pomelo_webrtc_async_shutdown_callback(uv_async_t * async);
+
 
 /// @brief Timer callback
 void pomelo_webrtc_timer_callback(uv_timer_t * timer);
 
+
 /// @brief Worker task process
 void pomelo_webrtc_worker_task_process(uv_work_t * work);
+
 
 /// @brief Worker task callback
 void pomelo_webrtc_worker_task_callback(uv_work_t * work, int status);

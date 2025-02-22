@@ -2,12 +2,11 @@
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
+#include "pomelo/constants.h"
 #include "utils/string-buffer.h"
 #include "context.h"
 #include "session/session.h"
-#include "session/session-pool.h"
 #include "socket/socket.h"
-#include "socket/socket-pool.h"
 #include "channel/channel.h"
 #include "socket/socket-plugin.h"
 #include "socket/socket-wss.h"
@@ -16,7 +15,6 @@
 #include "session/session-pc.h"
 #include "channel/channel-plugin.h"
 #include "channel/channel-dc.h"
-#include "channel/channel-pool.h"
 
 
 #define POMELO_PLUGIN_WEBRTC_LOG_LEVEL RTC_LOG_LEVEL_DEBUG
@@ -93,18 +91,18 @@ pomelo_webrtc_context_t * pomelo_webrtc_context_create(
         pomelo_webrtc_socket_plugin_on_listening,
         /* socket_on_connecting = */ NULL,
         pomelo_webrtc_socket_plugin_on_stopped,
-        pomelo_webrtc_plugin_session_create,
-        pomelo_webrtc_plugin_session_receive,
+        pomelo_webrtc_plugin_session_send,
         pomelo_webrtc_plugin_session_disconnect,
         pomelo_webrtc_plugin_session_get_rtt,
-        pomelo_webrtc_plugin_session_set_mode,
-        pomelo_webrtc_plugin_session_send
+        pomelo_webrtc_plugin_session_set_mode
     );
 
     // Create socket private map
-    pomelo_map_options_t map_options;
-    pomelo_map_options_init(&map_options);
-
+    pomelo_map_options_t map_options = {
+        .allocator = allocator,
+        .key_size = sizeof(pomelo_socket_t *),
+        .value_size = sizeof(void *)
+    };
     map_options.allocator = allocator;
     map_options.key_size = sizeof(pomelo_socket_t *);
     map_options.value_size = sizeof(void *);
@@ -116,92 +114,102 @@ pomelo_webrtc_context_t * pomelo_webrtc_context_create(
         return NULL;
     }
 
+    // Set running sockets to 0
+    pomelo_atomic_uint64_store(&context->running_sockets, 0);
+
     // Create string buffers pool
-    pomelo_pool_options_t pool_options;
-    pomelo_pool_options_init(&pool_options);
+    pomelo_pool_root_options_t pool_options;
+    memset(&pool_options, 0, sizeof(pomelo_pool_root_options_t));
     pool_options.allocator = allocator;
     pool_options.element_size = sizeof(pomelo_string_buffer_t);
-    pool_options.allocate_callback = (pomelo_pool_callback)
-        pomelo_string_buffer_initialize;
-    pool_options.deallocate_callback = (pomelo_pool_callback)
-        pomelo_string_buffer_finalize;
-    pool_options.acquire_callback = (pomelo_pool_callback)
-        pomelo_string_buffer_reset;
-    pool_options.callback_context = allocator;
+    pool_options.on_alloc = (pomelo_pool_alloc_cb)
+        pomelo_string_buffer_on_alloc;
+    pool_options.on_free = (pomelo_pool_free_cb)
+        pomelo_string_buffer_on_free;
+    pool_options.on_init = (pomelo_pool_init_cb)
+        pomelo_string_buffer_init;
+    pool_options.alloc_data = allocator;
 
-    context->string_buffer_pool = pomelo_pool_create(&pool_options);
+    context->string_buffer_pool = pomelo_pool_root_create(&pool_options);
     if (!context->string_buffer_pool) {
         pomelo_webrtc_context_destroy(context);
         return NULL;
     }
 
     // Create connect tokens pool
-    pomelo_pool_options_init(&pool_options);
+    memset(&pool_options, 0, sizeof(pomelo_pool_root_options_t));
     pool_options.allocator = allocator;
     pool_options.element_size = POMELO_CONNECT_TOKEN_BYTES;
-    pool_options.zero_initialized = true;
-    context->connect_token_pool = pomelo_pool_create(&pool_options);
+    pool_options.zero_init = true;
+    context->connect_token_pool = pomelo_pool_root_create(&pool_options);
     if (!context->connect_token_pool) {
         pomelo_webrtc_context_destroy(context);
         return NULL;
     }
 
-
     // Create sockets pool
-    pomelo_pool_options_init(&pool_options);
+    memset(&pool_options, 0, sizeof(pomelo_pool_root_options_t));
     pool_options.allocator = allocator;
     pool_options.element_size = sizeof(pomelo_webrtc_socket_t);
-    pool_options.callback_context = context;
-    pool_options.allocate_callback = (pomelo_pool_callback)
-        pomelo_webrtc_socket_pool_allocate_callback;
-    pool_options.deallocate_callback = (pomelo_pool_callback)
-        pomelo_webrtc_socket_pool_deallocate_callback;
-    pool_options.acquire_callback = (pomelo_pool_callback)
-        pomelo_webrtc_socket_pool_acquire_callback;
-    
-    context->socket_pool = pomelo_pool_create(&pool_options);
+    pool_options.alloc_data = context;
+    pool_options.on_alloc = (pomelo_pool_alloc_cb)
+        pomelo_webrtc_socket_on_alloc;
+    pool_options.on_free = (pomelo_pool_free_cb)
+        pomelo_webrtc_socket_on_free;
+    pool_options.on_init = (pomelo_pool_init_cb)
+        pomelo_webrtc_socket_init;
+    pool_options.on_cleanup = (pomelo_pool_cleanup_cb)
+        pomelo_webrtc_socket_cleanup;
+    context->socket_pool = pomelo_pool_root_create(&pool_options);
     if (!context->socket_pool) {
         pomelo_webrtc_context_destroy(context);
         return NULL;
     }
 
     // Create sessions pool
-    pomelo_pool_options_init(&pool_options);
+    memset(&pool_options, 0, sizeof(pomelo_pool_root_options_t));
     pool_options.allocator = allocator;
     pool_options.element_size = sizeof(pomelo_webrtc_session_t);
-    pool_options.callback_context = context;
-    pool_options.allocate_callback = (pomelo_pool_callback)
-        pomelo_webrtc_session_alloc_callback;
-    pool_options.deallocate_callback = (pomelo_pool_callback)
-        pomelo_webrtc_session_dealloc_callback;
-    pool_options.acquire_callback = (pomelo_pool_callback)
-        pomelo_webrtc_session_acquire_callback;
-    context->session_pool = pomelo_pool_create(&pool_options);
+    pool_options.alloc_data = context;
+    pool_options.on_alloc = (pomelo_pool_alloc_cb)
+        pomelo_webrtc_session_on_alloc;
+    pool_options.on_free = (pomelo_pool_free_cb)
+        pomelo_webrtc_session_on_free;
+    pool_options.on_init = (pomelo_pool_init_cb)
+        pomelo_webrtc_session_init;
+    pool_options.on_cleanup = (pomelo_pool_cleanup_cb)
+        pomelo_webrtc_session_cleanup;
+    context->session_pool = pomelo_pool_root_create(&pool_options);
     if (!context->session_pool) {
         pomelo_webrtc_context_destroy(context);
         return NULL;
     }
 
     // Create channels pool
-    pomelo_pool_options_init(&pool_options);
+    memset(&pool_options, 0, sizeof(pomelo_pool_root_options_t));
     pool_options.allocator = allocator;
     pool_options.element_size = sizeof(pomelo_webrtc_channel_t);
-    pool_options.zero_initialized = true;
-    pool_options.callback_context = context;
-    pool_options.acquire_callback = (pomelo_pool_callback)
-        pomelo_webrtc_channel_acquire_callback;
-    context->channel_pool = pomelo_pool_create(&pool_options);
+    pool_options.alloc_data = context;
+    pool_options.on_alloc = (pomelo_pool_alloc_cb)
+        pomelo_webrtc_channel_on_alloc;
+    pool_options.on_free = (pomelo_pool_free_cb)
+        pomelo_webrtc_channel_on_free;
+    pool_options.on_init = (pomelo_pool_init_cb)
+        pomelo_webrtc_channel_init;
+    pool_options.on_cleanup = (pomelo_pool_cleanup_cb)
+        pomelo_webrtc_channel_cleanup;
+    context->channel_pool = pomelo_pool_root_create(&pool_options);
     if (!context->channel_pool) {
         pomelo_webrtc_context_destroy(context);
         return NULL;
     }
 
     // Create list of tasks
-    pomelo_list_options_t list_options;
-    pomelo_list_options_init(&list_options);
-    list_options.allocator = allocator;
-    list_options.element_size = sizeof(pomelo_webrtc_task_t *);
-    list_options.synchronized = true;
+    pomelo_list_options_t list_options = {
+        .allocator = allocator,
+        .element_size = sizeof(pomelo_webrtc_task_t *),
+        .synchronized = true
+    };
     context->tasks = pomelo_list_create(&list_options);
     if (!context->tasks) {
         pomelo_webrtc_context_destroy(context);
@@ -209,35 +217,46 @@ pomelo_webrtc_context_t * pomelo_webrtc_context_create(
     }
 
     // Create pool of async tasks
-    pomelo_pool_options_init(&pool_options);
+    memset(&pool_options, 0, sizeof(pomelo_pool_root_options_t));
     pool_options.allocator = allocator;
     pool_options.element_size = sizeof(pomelo_webrtc_task_t);
     pool_options.synchronized = true;
-    pool_options.zero_initialized = true;
-    context->async_tasks_pool = pomelo_pool_create(&pool_options);
+    pool_options.zero_init = true;
+    context->async_tasks_pool = pomelo_pool_root_create(&pool_options);
     if (!context->async_tasks_pool) {
         pomelo_webrtc_context_destroy(context);
         return NULL;
     }
 
     // Create pool of scheduled tasks
-    pomelo_pool_options_init(&pool_options);
+    memset(&pool_options, 0, sizeof(pomelo_pool_root_options_t));
     pool_options.allocator = allocator;
     pool_options.element_size = sizeof(pomelo_webrtc_scheduled_task_t);
-    pool_options.zero_initialized = true;
-    context->scheduled_tasks_pool = pomelo_pool_create(&pool_options);
+    pool_options.zero_init = true;
+    context->scheduled_tasks_pool = pomelo_pool_root_create(&pool_options);
     if (!context->scheduled_tasks_pool) {
         pomelo_webrtc_context_destroy(context);
         return NULL;
     }
 
     // Create pool of worker task
-    pomelo_pool_options_init(&pool_options);
+    memset(&pool_options, 0, sizeof(pomelo_pool_root_options_t));
     pool_options.allocator = allocator;
     pool_options.element_size = sizeof(pomelo_webrtc_worker_task_t);
-    pool_options.zero_initialized = true;
-    context->worker_tasks_pool = pomelo_pool_create(&pool_options);
+    pool_options.zero_init = true;
+    context->worker_tasks_pool = pomelo_pool_root_create(&pool_options);
     if (!context->worker_tasks_pool) {
+        pomelo_webrtc_context_destroy(context);
+        return NULL;
+    }
+
+    // Create pool of received commands
+    memset(&pool_options, 0, sizeof(pomelo_pool_root_options_t));
+    pool_options.allocator = allocator;
+    pool_options.element_size = sizeof(pomelo_webrtc_recv_command_t);
+    pool_options.zero_init = true;
+    context->recv_command_pool = pomelo_pool_root_create(&pool_options);
+    if (!context->recv_command_pool) {
         pomelo_webrtc_context_destroy(context);
         return NULL;
     }
@@ -332,6 +351,11 @@ void pomelo_webrtc_context_destroy(pomelo_webrtc_context_t * context) {
         context->worker_tasks_pool = NULL;
     }
 
+    if (context->recv_command_pool) {
+        pomelo_pool_destroy(context->recv_command_pool);
+        context->recv_command_pool = NULL;
+    }
+
     // Free itself
     pomelo_allocator_free(context->allocator, context);
 }
@@ -356,7 +380,7 @@ pomelo_webrtc_task_t * pomelo_webrtc_context_submit_task(
     }
 
     pomelo_webrtc_task_t * task =
-        pomelo_pool_acquire(context->async_tasks_pool);
+        pomelo_pool_acquire(context->async_tasks_pool, NULL);
     if (!task) {
         return NULL;
     }
@@ -395,7 +419,7 @@ pomelo_webrtc_task_t * pomelo_webrtc_context_schedule_task(
     }
 
     pomelo_webrtc_scheduled_task_t * task =
-        pomelo_pool_acquire(context->scheduled_tasks_pool);
+        pomelo_pool_acquire(context->scheduled_tasks_pool, NULL);
     if (!task) {
         return NULL;
     }
@@ -458,7 +482,7 @@ pomelo_webrtc_task_t * pomelo_webrtc_context_spawn_task(
     }
 
     pomelo_webrtc_worker_task_t * task =
-        pomelo_pool_acquire(context->worker_tasks_pool);
+        pomelo_pool_acquire(context->worker_tasks_pool, NULL);
     if (!task) {
         return NULL;
     }
@@ -484,6 +508,76 @@ pomelo_webrtc_task_t * pomelo_webrtc_context_spawn_task(
     return base;
 }
 
+
+pomelo_string_buffer_t * pomelo_webrtc_context_acquire_string_buffer(
+    pomelo_webrtc_context_t * context
+) {
+    assert(context != NULL);
+    return pomelo_pool_acquire(context->string_buffer_pool, NULL);
+}
+
+
+void pomelo_webrtc_context_release_string_buffer(
+    pomelo_webrtc_context_t * context,
+    pomelo_string_buffer_t * buffer
+) {
+    assert(context != NULL);
+    pomelo_pool_release(context->string_buffer_pool, buffer);
+}
+
+
+pomelo_webrtc_socket_t * pomelo_webrtc_context_acquire_socket(
+    pomelo_webrtc_context_t * context,
+    pomelo_webrtc_socket_info_t * info
+) {
+    assert(context != NULL);
+    return pomelo_pool_acquire(context->socket_pool, info);
+}
+
+
+void pomelo_webrtc_context_release_socket(
+    pomelo_webrtc_context_t * context,
+    pomelo_webrtc_socket_t * socket
+) {
+    assert(context != NULL);
+    pomelo_pool_release(context->socket_pool, socket);
+}
+
+
+pomelo_webrtc_session_t * pomelo_webrtc_context_acquire_session(
+    pomelo_webrtc_context_t * context,
+    pomelo_webrtc_session_info_t * info
+) {
+    assert(context != NULL);
+    return pomelo_pool_acquire(context->session_pool, info);
+}
+
+
+void pomelo_webrtc_context_release_session(
+    pomelo_webrtc_context_t * context,
+    pomelo_webrtc_session_t * session
+) {
+    assert(context != NULL);
+    pomelo_pool_release(context->session_pool, session);
+}
+
+
+pomelo_webrtc_channel_t * pomelo_webrtc_context_acquire_channel(
+    pomelo_webrtc_context_t * context,
+    pomelo_webrtc_channel_info_t * info
+) {
+    assert(context != NULL);
+    return pomelo_pool_acquire(context->channel_pool, info);
+}
+
+
+void pomelo_webrtc_context_release_channel(
+    pomelo_webrtc_context_t * context,
+    pomelo_webrtc_channel_t * channel
+) {
+    assert(context != NULL);
+    pomelo_pool_release(context->channel_pool, channel);
+}
 
 /* -------------------------------------------------------------------------- */
 /*                              Private APIs                                  */

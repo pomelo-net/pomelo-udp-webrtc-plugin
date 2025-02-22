@@ -32,17 +32,14 @@ struct pomelo_string_buffer_s {
 
 
 /// @brief Initialize string buffer
-int pomelo_string_buffer_initialize(
+int pomelo_string_buffer_on_alloc(
     pomelo_string_buffer_t * string_buffer,
     pomelo_allocator_t * allocator
 );
 
 
 /// @brief Finalize string buffer
-int pomelo_string_buffer_finalize(
-    pomelo_string_buffer_t * string_buffer,
-    pomelo_allocator_t * allocator
-);
+void pomelo_string_buffer_on_free(pomelo_string_buffer_t * string_buffer);
 
 
 /// @brief Ensure the capacity of buffer
@@ -53,9 +50,9 @@ bool pomelo_string_buffer_ensure_capacity(
 
 
 /// @brief Reset string buffer
-int pomelo_string_buffer_reset(
+int pomelo_string_buffer_init(
     pomelo_string_buffer_t * string_buffer,
-    pomelo_allocator_t * allocator
+    void * unused
 );
 
 

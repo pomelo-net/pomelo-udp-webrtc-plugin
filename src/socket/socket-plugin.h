@@ -11,6 +11,7 @@ extern "C" {
 /*                           Plugin implementation                            */
 /* -------------------------------------------------------------------------- */
 
+/// @brief Listening callback
 void POMELO_PLUGIN_CALL pomelo_webrtc_socket_plugin_on_listening(
     pomelo_plugin_t * plugin,
     pomelo_socket_t * native_socket,
@@ -18,6 +19,15 @@ void POMELO_PLUGIN_CALL pomelo_webrtc_socket_plugin_on_listening(
 );
 
 
+/// @brief Connecting callback
+void POMELO_PLUGIN_CALL pomelo_webrtc_socket_plugin_on_connecting(
+    pomelo_plugin_t * plugin,
+    pomelo_socket_t * native_socket,
+    uint8_t * connect_token
+);
+
+
+/// @brief Stopped callback
 void POMELO_PLUGIN_CALL pomelo_webrtc_socket_plugin_on_stopped(
     pomelo_plugin_t * plugin,
     pomelo_socket_t * native_socket
@@ -36,8 +46,19 @@ int pomelo_webrtc_socket_plugin_init(
 );
 
 
-/// @brief Finalize plugin part of socket
-void pomelo_webrtc_socket_plugin_finalize(pomelo_webrtc_socket_t * socket);
+/// @brief Cleanup plugin part of socket
+void pomelo_webrtc_socket_plugin_cleanup(pomelo_webrtc_socket_t * socket);
+
+
+/* -------------------------------------------------------------------------- */
+/*                               Private APIs                                 */
+/* -------------------------------------------------------------------------- */
+
+/// @brief Process when native socket is started
+void pomelo_webrtc_socket_plugin_on_started(
+    pomelo_plugin_t * plugin,
+    pomelo_socket_t * native_socket
+);
 
 
 #ifdef __cplusplus

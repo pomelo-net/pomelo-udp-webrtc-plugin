@@ -8,7 +8,11 @@ RTCBufferPool::RTCBufferPool(RTCContext * context):
     RTCObjectPool<RTCBuffer>(context) {}
 
 
-void RTCBufferPool::init(RTCBuffer * buffer) {
+RTCBuffer * RTCBufferPool::acquire() {
+    RTCBuffer * buffer = RTCObjectPool<RTCBuffer>::acquire();
+    if (!buffer) return nullptr;
+
     buffer->source = this;
     buffer->reset_ref();
+    return buffer;
 }

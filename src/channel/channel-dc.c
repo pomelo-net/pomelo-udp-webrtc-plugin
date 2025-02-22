@@ -5,6 +5,7 @@
 #include "session/session.h"
 #include "channel-dc.h"
 #include "socket/socket.h"
+#include "utils/common-macro.h"
 
 
 #define RTC_CHANNEL_NAME_CAPACITY (sizeof(POMELO_SERVER_CHANNEL_PREFIX) + 11)
@@ -258,7 +259,7 @@ int pomelo_webrtc_channel_dc_init(pomelo_webrtc_channel_t * channel) {
 }
 
 
-void pomelo_webrtc_channel_dc_finalize(pomelo_webrtc_channel_t * channel) {
+void pomelo_webrtc_channel_dc_cleanup(pomelo_webrtc_channel_t * channel) {
     assert(channel != NULL);
     if (channel->outgoing_dc) {
         rtc_data_channel_destroy(channel->outgoing_dc);
@@ -340,18 +341,5 @@ void pomelo_webrtc_channel_dc_process_message(
         return;
     }
 
-    // Ref this channel until the messasge is processed completely
-    pomelo_webrtc_channel_ref(channel);
-
-    // Keep the reference of message and submit command
-    rtc_buffer_ref(message);
-
-    pomelo_plugin_t * plugin = channel->context->plugin;
-    plugin->session_receive(
-        plugin,
-        session->native_session,
-        channel->index,
-        message
-    );
-    // => pomelo_webrtc_plugin_session_receive
+    pomelo_webrtc_channel_receive(channel, message);
 }

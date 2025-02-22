@@ -20,8 +20,9 @@ pomelo_webrtc_session_t * pomelo_webrtc_socket_create_session(
 /*                                Private APIs                                */
 /* -------------------------------------------------------------------------- */
 
-/// @brief Destroy a WebRTC socket
-void pomelo_webrtc_socket_destroy(pomelo_webrtc_socket_t * socket);
+/// @brief On finalize the socket
+void pomelo_webrtc_socket_on_finalize(pomelo_webrtc_socket_t * socket);
+
 
 
 #ifdef __cplusplus

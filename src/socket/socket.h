@@ -16,6 +16,18 @@ extern "C" {
 #define POMELO_WEBRTC_SOCKET_FLAG_WSS_ACTIVE (1 << 1)
 
 
+struct pomelo_webrtc_socket_info_s {
+    /// @brief Plugin
+    pomelo_plugin_t * plugin;
+
+    /// @brief Native socket
+    pomelo_socket_t * native_socket;
+
+    /// @brief Address
+    pomelo_address_t * address;
+};
+
+
 struct pomelo_webrtc_socket_s {
     /// @brief Reference of this socket
     pomelo_reference_t ref;
@@ -43,21 +55,40 @@ struct pomelo_webrtc_socket_s {
 /*                               Public APIs                                  */
 /* -------------------------------------------------------------------------- */
 
-/// @brief Create new WebRTC socket
-pomelo_webrtc_socket_t * pomelo_webrtc_socket_create(
-    pomelo_plugin_t * plugin,
-    pomelo_socket_t * native_socket,
-    pomelo_address_t * address
+
+/// @brief On alloc the socket
+int pomelo_webrtc_socket_on_alloc(
+    pomelo_webrtc_socket_t * socket,
+    pomelo_webrtc_context_t * context
 );
+
+
+/// @brief On free the socket
+void pomelo_webrtc_socket_on_free(pomelo_webrtc_socket_t * socket);
+
+
+/// @brief Initialize the socket
+int pomelo_webrtc_socket_init(
+    pomelo_webrtc_socket_t * socket,
+    pomelo_webrtc_socket_info_t * info
+);
+
+
+/// @brief Cleanup the socket
+void pomelo_webrtc_socket_cleanup(pomelo_webrtc_socket_t * socket);
+
 
 /// @brief Increase reference count of socket
 void pomelo_webrtc_socket_ref(pomelo_webrtc_socket_t * socket);
 
+
 /// @brief Decrease reference count of socket
 void pomelo_webrtc_socket_unref(pomelo_webrtc_socket_t * socket);
 
+
 /// @brief Close the socket
 void pomelo_webrtc_socket_close(pomelo_webrtc_socket_t * socket);
+
 
 /// @brief Remove a session from controlling list
 void pomelo_webrtc_socket_remove_session(

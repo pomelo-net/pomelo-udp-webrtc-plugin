@@ -7,6 +7,7 @@
 #include "socket-plugin.h"
 #include "socket-wss.h"
 
+#define POMELO_WEBRTC_CHANNELS_INIT_CAPACITY 64
 
 #define pomelo_webrtc_socket_is_active(socket)                                 \
 POMELO_CHECK_FLAG((socket)->flags, POMELO_WEBRTC_SOCKET_FLAG_ACTIVE)
@@ -21,44 +22,93 @@ POMELO_UNSET_FLAG((socket)->flags, POMELO_WEBRTC_SOCKET_FLAG_ACTIVE)
 /*                               Public APIs                                  */
 /* -------------------------------------------------------------------------- */
 
-pomelo_webrtc_socket_t * pomelo_webrtc_socket_create(
-    pomelo_plugin_t * plugin,
-    pomelo_socket_t * native_socket,
-    pomelo_address_t * address
-) {
-    assert(plugin != NULL);
-    assert(native_socket != NULL);
 
-    // Create new webrtc socket
-    pomelo_webrtc_context_t * context = plugin->get_data(plugin);
-    pomelo_webrtc_socket_t * socket = pomelo_pool_acquire(context->socket_pool);
-    if (!socket) {
-        return NULL;
+int pomelo_webrtc_socket_on_alloc(
+    pomelo_webrtc_socket_t * socket,
+    pomelo_webrtc_context_t * context
+) {
+    assert(socket != NULL);
+    assert(context != NULL);
+    socket->context = context;
+
+    pomelo_allocator_t * allocator = context->allocator;
+    pomelo_list_options_t list_options = {
+        .allocator = allocator,
+        .element_size = sizeof(pomelo_webrtc_session_t *)
+    };
+    socket->sessions = pomelo_list_create(&list_options);
+    if (!socket->sessions) return -1;
+
+    pomelo_array_options_t array_options = {
+        .allocator = allocator,
+        .initial_capacity = POMELO_WEBRTC_CHANNELS_INIT_CAPACITY,
+        .element_size = sizeof(pomelo_channel_mode)
+    };
+    socket->channel_modes = pomelo_array_create(&array_options);
+    if (!socket->channel_modes) return -1;
+
+    return 0;
+}
+
+
+void pomelo_webrtc_socket_on_free(pomelo_webrtc_socket_t * socket) {
+    assert(socket != NULL);
+    socket->context = NULL;
+
+    if (socket->sessions) {
+        pomelo_list_destroy(socket->sessions);
+        socket->sessions = NULL;
     }
 
+    if (socket->channel_modes) {
+        pomelo_array_destroy(socket->channel_modes);
+        socket->channel_modes = NULL;
+    }
+}
+
+
+int pomelo_webrtc_socket_init(
+    pomelo_webrtc_socket_t * socket,
+    pomelo_webrtc_socket_info_t * info
+) {
+    assert(socket != NULL);
+    assert(info != NULL);
+    
     // Init reference
     pomelo_reference_init(
         &socket->ref,
-        (pomelo_ref_finalize_cb) pomelo_webrtc_socket_destroy
+        (pomelo_ref_finalize_cb) pomelo_webrtc_socket_on_finalize
     );
 
-    int ret = pomelo_webrtc_socket_plugin_init(socket, plugin, native_socket);
-    if (ret < 0) {
-        pomelo_webrtc_socket_destroy(socket);
-        return NULL;
-    }
+    int ret = pomelo_webrtc_socket_plugin_init(
+        socket,
+        info->plugin,
+        info->native_socket
+    );
+    if (ret < 0) return -1;
 
-    ret = pomelo_webrtc_socket_wss_init(socket, address);
-    if (ret < 0) {
-        pomelo_webrtc_socket_destroy(socket);
-        return NULL;
-    }
+    ret = pomelo_webrtc_socket_wss_init(socket, info->address);
+    if (ret < 0) return -1;
 
     // Attach socket
-    plugin->socket_attach(plugin, native_socket);
     pomelo_webrtc_socket_set_active(socket);
+    return 0;
+}
 
-    return socket;
+
+void pomelo_webrtc_socket_cleanup(pomelo_webrtc_socket_t * socket) {
+    assert(socket != NULL);
+    // Finalize all parts of socket
+    pomelo_webrtc_socket_wss_cleanup(socket);
+    pomelo_webrtc_socket_plugin_cleanup(socket);
+
+    // Clear sessions
+    pomelo_list_clear(socket->sessions);
+    pomelo_array_clear(socket->channel_modes);
+
+    socket->flags = 0;
+    socket->native_socket = NULL;
+    socket->ws_server = NULL;
 }
 
 
@@ -86,7 +136,7 @@ void pomelo_webrtc_socket_close(pomelo_webrtc_socket_t * socket) {
     // Close all sessions
     pomelo_webrtc_session_t * session = NULL;
     while (pomelo_list_pop_front(socket->sessions, &session) == 0) {
-        session->list_node = NULL;
+        session->list_entry = NULL;
         pomelo_webrtc_session_close(session);
     }
 
@@ -104,9 +154,9 @@ void pomelo_webrtc_socket_remove_session(
     assert(socket != NULL);
     assert(session != NULL);
 
-    if (session->list_node) {
-        pomelo_list_remove(socket->sessions, session->list_node);
-        session->list_node = NULL;
+    if (session->list_entry) {
+        pomelo_list_remove(socket->sessions, session->list_entry);
+        session->list_entry = NULL;
     }
 }
 
@@ -122,19 +172,22 @@ pomelo_webrtc_session_t * pomelo_webrtc_socket_create_session(
     assert(socket != NULL);
     assert(ws_client != NULL);
 
+    pomelo_webrtc_session_info_t info = {
+        .socket = socket,
+        .ws_client = ws_client
+    };
+
     // Create new session
     pomelo_webrtc_session_t * session =
-        pomelo_webrtc_session_create(socket, ws_client);
-    if (!session) {
-        // Failed to create new session
-        return NULL;
-    }
+        pomelo_webrtc_context_acquire_session(socket->context, &info);
+    if (!session) return NULL; // Failed to create new session
 
     // Add session to sessions list
-    session->list_node = pomelo_list_push_back(socket->sessions, session);
-    if (!session->list_node) {
+    session->list_entry = pomelo_list_push_back(socket->sessions, session);
+    if (!session->list_entry) {
         // Failed to append new session to list
         pomelo_webrtc_session_close(session);
+        return NULL;
     }
 
     return session;
@@ -145,18 +198,9 @@ pomelo_webrtc_session_t * pomelo_webrtc_socket_create_session(
 /*                                Private APIs                                */
 /* -------------------------------------------------------------------------- */
 
-void pomelo_webrtc_socket_destroy(pomelo_webrtc_socket_t * socket) {
+void pomelo_webrtc_socket_on_finalize(pomelo_webrtc_socket_t * socket) {
     assert(socket != NULL);
-    pomelo_webrtc_context_t * context = socket->context;
-    
-    // Finalize all parts of socket
-    pomelo_webrtc_socket_wss_finalize(socket);
-    pomelo_webrtc_socket_plugin_finalize(socket);
-
-    // Clear sessions
-    pomelo_list_clear(socket->sessions);
-
-    // Release itself
-    pomelo_pool_release(context->socket_pool, socket);
+    // Release socket
+    pomelo_webrtc_context_release_socket(socket->context, socket);
 }
 

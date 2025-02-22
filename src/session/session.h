@@ -2,13 +2,11 @@
 #define POMELO_PLUGIN_WEBRTC_SESSION_H
 #include "rtc-api/rtc-api.h"
 #include "plugin.h"
-#include "base/rtt.h"
 #include "base/ref.h"
 #include "utils/list.h"
 #include "utils/array.h"
 #include "utils/mutex.h"
-
-
+#include "utils/rtt.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -24,6 +22,16 @@ extern "C" {
     POMELO_WEBRTC_SESSION_FLAG_READY_SIGNAL_RECEIVED |                         \
     POMELO_WEBRTC_SESSION_FLAG_ALL_CHANNELS_OPENED                             \
 )
+
+
+struct pomelo_webrtc_session_info_s {
+    /// @brief Socket
+    pomelo_webrtc_socket_t * socket;
+
+    /// @brief WebSocket client
+    rtc_websocket_client_t * ws_client;
+};
+
 
 struct pomelo_webrtc_session_s {
     /// @brief Reference
@@ -45,7 +53,7 @@ struct pomelo_webrtc_session_s {
     pomelo_webrtc_channel_t * system_channel;
     
     /// @brief Position of this session in sessions list
-    pomelo_list_node_t * list_node;
+    pomelo_list_entry_t * list_entry;
 
     /// @brief The number of opened channels
     size_t opened_channels;
@@ -62,6 +70,9 @@ struct pomelo_webrtc_session_s {
     /// @brief Client ID
     int64_t client_id;
 
+    /// @brief The address of this session
+    pomelo_address_t address;
+
     /// @brief RTC peer connection
     rtc_peer_connection_t * pc;
 
@@ -77,14 +88,32 @@ struct pomelo_webrtc_session_s {
 /*                               Public APIs                                  */
 /* -------------------------------------------------------------------------- */
 
-/// @brief New session
-pomelo_webrtc_session_t * pomelo_webrtc_session_create(
-    pomelo_webrtc_socket_t * socket,
-    rtc_websocket_client_t * ws_client
+
+/// @brief On alloc the session
+int pomelo_webrtc_session_on_alloc(
+    pomelo_webrtc_session_t * session,
+    pomelo_webrtc_context_t * context
 );
+
+
+/// @brief On free the session
+void pomelo_webrtc_session_on_free(pomelo_webrtc_session_t * session);
+
+
+/// @brief New session
+int pomelo_webrtc_session_init(
+    pomelo_webrtc_session_t * session,
+    pomelo_webrtc_session_info_t * info
+);
+
+
+/// @brief Cleanup the session
+void pomelo_webrtc_session_cleanup(pomelo_webrtc_session_t * session);
+
 
 /// @brief Close the connection
 void pomelo_webrtc_session_close(pomelo_webrtc_session_t * session);
+
 
 /// @brief Remove a channel when it is going to be deleted
 void pomelo_webrtc_session_remove_channel(
@@ -92,11 +121,13 @@ void pomelo_webrtc_session_remove_channel(
     pomelo_webrtc_channel_t * channel
 );
 
+
 /// @brief Process when a data channel of this session has opened
 void pomelo_webrtc_session_on_channel_opened(
     pomelo_webrtc_session_t * session,
     pomelo_webrtc_channel_t * channel
 );
+
 
 /// @brief Process the system message
 void pomelo_webrtc_session_process_system_message(
@@ -105,8 +136,10 @@ void pomelo_webrtc_session_process_system_message(
     uint64_t recv_time
 );
 
+
 /// @brief Increase reference counter of session
 void pomelo_webrtc_session_ref(pomelo_webrtc_session_t * session);
+
 
 /// @brief Decrease reference counter of session
 void pomelo_webrtc_session_unref(pomelo_webrtc_session_t * session);

@@ -12,11 +12,7 @@ extern "C" {
 
 void POMELO_PLUGIN_CALL pomelo_webrtc_plugin_session_receive(
     pomelo_plugin_t * plugin,
-    pomelo_session_t * native_session,
-    size_t channel_index,
-    void * callback_data,
-    pomelo_message_t * message,
-    pomelo_plugin_error_t error
+    pomelo_webrtc_recv_command_t * command
 );
 
 
@@ -25,6 +21,17 @@ void POMELO_PLUGIN_CALL pomelo_webrtc_plugin_session_send(
     pomelo_session_t * native_session,
     size_t channel_index,
     pomelo_message_t * message
+);
+
+
+
+/* -------------------------------------------------------------------------- */
+/*                            Private APIs                                    */
+/* -------------------------------------------------------------------------- */
+
+void pomelo_webrtc_plugin_channel_receive(
+    pomelo_plugin_t * plugin,
+    pomelo_webrtc_recv_command_t * command
 );
 
 

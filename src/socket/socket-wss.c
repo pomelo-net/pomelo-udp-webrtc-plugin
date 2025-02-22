@@ -1,6 +1,6 @@
 #include <assert.h>
 #include <string.h>
-#include "utils/macro.h"
+#include "utils/common-macro.h"
 #include "session/session.h"
 #include "socket-wss.h"
 #include "context.h"
@@ -48,9 +48,7 @@ void pomelo_webrtc_socket_wss_on_client(
     assert(ws_server != NULL);
     rtc_context_t * rtc_context = rtc_websocket_server_get_context(ws_server);
     pomelo_webrtc_context_t * context = rtc_context_get_data(rtc_context);
-    if (!context) {
-        return;
-    }
+    if (!context) return;
 
     pomelo_webrtc_variant_t args[] = {
         { .ptr = ws_server },
@@ -103,7 +101,7 @@ int pomelo_webrtc_socket_wss_init(
 }
 
 
-void pomelo_webrtc_socket_wss_finalize(pomelo_webrtc_socket_t * socket) {
+void pomelo_webrtc_socket_wss_cleanup(pomelo_webrtc_socket_t * socket) {
     assert(socket != NULL);
     if (socket->ws_server) {
         rtc_websocket_server_destroy(socket->ws_server);

@@ -12,7 +12,7 @@ class RTCBufferPool : public RTCObjectPool<RTCBuffer> {
 public:
     RTCBufferPool(RTCContext * context);
 
-    void init(RTCBuffer * buffer) override;
+    RTCBuffer * acquire() override;
 };
 
 

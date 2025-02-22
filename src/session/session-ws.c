@@ -1,7 +1,8 @@
 #include <assert.h>
 #include <string.h>
-#include "utils/base64.h"
-#include "utils/macro.h"
+#include "pomelo/constants.h"
+#include "pomelo/base64.h"
+#include "utils/common-macro.h"
 #include "utils/string-buffer.h"
 #include "context.h"
 #include "socket/socket.h"
@@ -9,8 +10,10 @@
 
 
 #define POMELO_CONNECT_TOKEN_BASE64_LENGTH                                     \
-    (POMELO_PLUGIN_ENCODED_LENGTH(POMELO_CONNECT_TOKEN_BYTES) - 1)
+(pomelo_base64_calc_encoded_length(POMELO_CONNECT_TOKEN_BYTES) - 1)
 
+#define POMELO_CONNECT_TOKEN_BASE64_NO_PADDING_LENGTH                          \
+(pomelo_base64_calc_encoded_no_padding_length(POMELO_CONNECT_TOKEN_BYTES) - 1)
 
 /// Compare head of message with opcode
 #define opcode_cmp(message, opcode)                                            \
@@ -58,9 +61,7 @@ static void pomelo_webrtc_ws_on_closed_callback(
     rtc_websocket_client_t * ws_client = args[0].ptr;
     pomelo_webrtc_session_t * session =
         rtc_websocket_client_get_data(ws_client);
-    if (!session) {
-        return; // Not a mapped session
-    }
+    if (!session) return; // Not a mapped session
 
     pomelo_webrtc_session_ws_on_closed(session);
 }
@@ -171,7 +172,7 @@ int pomelo_webrtc_session_ws_init(
 }
 
 
-void pomelo_webrtc_session_ws_finalize(pomelo_webrtc_session_t * session) {
+void pomelo_webrtc_session_ws_cleanup(pomelo_webrtc_session_t * session) {
     assert(session != NULL);
 
     // Delete the websocket & peer connection
@@ -206,10 +207,8 @@ void pomelo_webrtc_session_ws_send_description(
 
     pomelo_webrtc_context_t * context = session->context;
     pomelo_string_buffer_t * buffer =
-        pomelo_pool_acquire(context->string_buffer_pool);
-    if (!buffer) {
-        return; // Cannot allocate buffer, we could treat this one as error
-    }
+        pomelo_webrtc_context_acquire_string_buffer(context);
+    if (!buffer) return; // Cannot allocate buffer
 
     // Format: <opcode>|<type>|<sdp>
     pomelo_string_buffer_append_str(buffer, OPCODE_DESCRIPTION);
@@ -228,7 +227,7 @@ void pomelo_webrtc_session_ws_send_description(
     );
 
     // Finally release the buffer
-    pomelo_pool_release(context->string_buffer_pool, buffer);
+    pomelo_webrtc_context_release_string_buffer(context, buffer);
 }
 
 
@@ -244,10 +243,8 @@ void pomelo_webrtc_session_ws_send_candidate(
 
     pomelo_webrtc_context_t * context = session->context;
     pomelo_string_buffer_t * buffer =
-        pomelo_pool_acquire(context->string_buffer_pool);
-    if (!buffer) {
-        return;
-    }
+        pomelo_webrtc_context_acquire_string_buffer(context);
+    if (!buffer) return; // Cannot acquire new string buffer
 
     // Format: <opcode>|<mid>|<cand>
     pomelo_string_buffer_append_str(buffer, OPCODE_CANDIDATE);
@@ -266,7 +263,7 @@ void pomelo_webrtc_session_ws_send_candidate(
     );
 
     // Finally release the buffer
-    pomelo_pool_release(context->string_buffer_pool, buffer);
+    pomelo_webrtc_context_release_string_buffer(context, buffer);
 }
 
 
@@ -311,7 +308,10 @@ void pomelo_webrtc_session_ws_recv_auth(
     assert(session != NULL);
     assert(auth != NULL);
 
-    if (auth_length != POMELO_CONNECT_TOKEN_BASE64_LENGTH) {
+    if (
+        auth_length != POMELO_CONNECT_TOKEN_BASE64_LENGTH &&
+        auth_length != POMELO_CONNECT_TOKEN_BASE64_NO_PADDING_LENGTH
+    ) {
         // Invalid auth token
         pomelo_webrtc_session_ws_auth_result(session, NULL);
         return;
@@ -319,26 +319,18 @@ void pomelo_webrtc_session_ws_recv_auth(
 
     pomelo_webrtc_context_t * context = session->context;
     assert(context != NULL);
-    pomelo_pool_t * pool = context->connect_token_pool;
 
-    // Acquire new connect token buffer
-    uint8_t * connect_token = pomelo_pool_acquire(pool);
-    if (!connect_token) {
-        // Failed to acquire new connect token
-        pomelo_webrtc_session_ws_auth_result(session, NULL);
-        return;
-    }
+    uint8_t connect_token[POMELO_CONNECT_TOKEN_BYTES] = { 0 };
 
     // Convert message to base64
-    int ret = pomelo_plugin_base64_decode(
-        auth,
-        auth_length,
+    int ret = pomelo_base64_decode(
         connect_token,
-        POMELO_CONNECT_TOKEN_BYTES
+        POMELO_CONNECT_TOKEN_BYTES,
+        auth,
+        auth_length
     );
     if (ret < 0) {
         // Failed to decode connect token
-        pomelo_pool_release(pool, connect_token);
         pomelo_webrtc_session_ws_auth_result(session, NULL);
         return;
     }
@@ -357,9 +349,6 @@ void pomelo_webrtc_session_ws_recv_auth(
         connect_token,
         &info
     );
-
-    // After decoding, we can release the connect token
-    pomelo_pool_release(pool, connect_token);
 
     if (ret < 0) {
         pomelo_webrtc_session_ws_auth_result(session, NULL);
@@ -399,11 +388,9 @@ void pomelo_webrtc_session_ws_send_auth_success(
     assert(session != NULL);
 
     pomelo_webrtc_context_t * context = session->context;
-    pomelo_pool_t * buffer_pool = context->string_buffer_pool;
-    pomelo_string_buffer_t * buffer = pomelo_pool_acquire(buffer_pool);
-    if (!buffer) {
-        return; // Failed to acquire new buffer
-    }
+    pomelo_string_buffer_t * buffer =
+        pomelo_webrtc_context_acquire_string_buffer(context);
+    if (!buffer) return; // Cannot acquire new string buffer
 
     // Get server time
     pomelo_plugin_t * plugin = context->plugin;
@@ -425,6 +412,9 @@ void pomelo_webrtc_session_ws_send_auth_success(
         (const uint8_t *) message,
         length
     );
+
+    // Finally release the buffer
+    pomelo_webrtc_context_release_string_buffer(context, buffer);
 }
 
 
@@ -527,11 +517,9 @@ void pomelo_webrtc_session_ws_process_description_message(
     }
 
     pomelo_webrtc_context_t * context = session->context;
-    pomelo_pool_t * buffer_pool = context->string_buffer_pool;
-    pomelo_string_buffer_t * type_buffer = pomelo_pool_acquire(buffer_pool);
-    if (!type_buffer) {
-        return; // Failed to acquire new buffer
-    }
+    pomelo_string_buffer_t * type_buffer =
+        pomelo_webrtc_context_acquire_string_buffer(context);
+    if (!type_buffer) return; // Cannot acquire new string buffer
 
     // Append the type
     pomelo_string_buffer_append_bin(type_buffer, message, separator - message);
@@ -545,7 +533,7 @@ void pomelo_webrtc_session_ws_process_description_message(
     pomelo_webrtc_session_recv_remote_description(session, sdp, type);
 
     // Finally, release string buffer
-    pomelo_pool_release(context->string_buffer_pool, type_buffer);
+    pomelo_webrtc_context_release_string_buffer(context, type_buffer);
 }
 
 
@@ -565,11 +553,9 @@ void pomelo_webrtc_session_ws_process_candidate_message(
     }
 
     pomelo_webrtc_context_t * context = session->context;
-    pomelo_pool_t * buffer_pool = context->string_buffer_pool;
-    pomelo_string_buffer_t * mid_buffer = pomelo_pool_acquire(buffer_pool);
-    if (!mid_buffer) {
-        return; // Failed to acquire new buffer
-    }
+    pomelo_string_buffer_t * mid_buffer =
+        pomelo_webrtc_context_acquire_string_buffer(context);
+    if (!mid_buffer) return; // Cannot acquire new string buffer
 
     // Append the type
     pomelo_string_buffer_append_bin(mid_buffer, message, separator - message);
@@ -583,7 +569,7 @@ void pomelo_webrtc_session_ws_process_candidate_message(
     pomelo_webrtc_session_recv_remote_candidate(session, cand, mid);
 
     // Finally, release string buffer
-    pomelo_pool_release(context->string_buffer_pool, mid_buffer);
+    pomelo_webrtc_context_release_string_buffer(context, mid_buffer);
 }
 
 

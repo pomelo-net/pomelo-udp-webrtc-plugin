@@ -49,7 +49,7 @@ bool pomelo_string_buffer_ensure_capacity(
 }
 
 
-int pomelo_string_buffer_initialize(
+int pomelo_string_buffer_on_alloc(
     pomelo_string_buffer_t * string_buffer,
     pomelo_allocator_t * allocator
 ) {
@@ -70,29 +70,22 @@ int pomelo_string_buffer_initialize(
 }
 
 
-int pomelo_string_buffer_finalize(
-    pomelo_string_buffer_t * string_buffer,
-    pomelo_allocator_t * allocator
-) {
+void pomelo_string_buffer_on_free(pomelo_string_buffer_t * string_buffer) {
     assert(string_buffer != NULL);
-    assert(allocator != NULL);
     if (string_buffer->data) {
         pomelo_allocator_free(string_buffer->allocator, string_buffer->data);
         string_buffer->data = NULL;
     }
-
-    return 0;
 }
 
 
-int pomelo_string_buffer_reset(
+int pomelo_string_buffer_init(
     pomelo_string_buffer_t * string_buffer,
-    pomelo_allocator_t * allocator
+    void * unused
 ) {
     assert(string_buffer != NULL);
-    (void) allocator;
+    (void) unused;
     string_buffer->position = 0;
-
     return 0;
 }
 

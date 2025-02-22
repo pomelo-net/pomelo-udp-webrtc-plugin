@@ -19,6 +19,7 @@ typedef union pomelo_webrtc_variant_u {
     uint32_t u32;
     uint64_t u64;
     size_t size;
+    pomelo_address_t address;
 } pomelo_webrtc_variant_t;
 
 
@@ -43,6 +44,25 @@ typedef struct pomelo_webrtc_channel_s pomelo_webrtc_channel_t;
 
 /// @brief A single task
 typedef struct pomelo_webrtc_task_s pomelo_webrtc_task_t;
+
+/// @brief Scheduled task
+typedef struct pomelo_webrtc_scheduled_task_s pomelo_webrtc_scheduled_task_t;
+
+/// @brief Worker task
+typedef struct pomelo_webrtc_worker_task_s pomelo_webrtc_worker_task_t;
+
+/// @brief A single received command
+typedef struct pomelo_webrtc_recv_command_s pomelo_webrtc_recv_command_t;
+
+/// @brief Information about the channel
+typedef struct pomelo_webrtc_channel_info_s pomelo_webrtc_channel_info_t;
+
+/// @brief Information about the session
+typedef struct pomelo_webrtc_session_info_s pomelo_webrtc_session_info_t;
+
+/// @brief Information about the socket
+typedef struct pomelo_webrtc_socket_info_s pomelo_webrtc_socket_info_t;
+
 
 /* -------------------------------------------------------------------------- */
 /*                               PLugin APIs                                  */

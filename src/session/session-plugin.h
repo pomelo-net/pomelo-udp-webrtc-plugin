@@ -10,21 +10,28 @@ extern "C" {
 /*                           Plugin implementation                            */
 /* -------------------------------------------------------------------------- */
 
+/// @brief Create a session
 void POMELO_PLUGIN_CALL pomelo_webrtc_plugin_session_create(
     pomelo_plugin_t * plugin,
-    pomelo_socket_t * native_socket,
-    pomelo_session_t * native_session,
-    void * callback_data,
-    pomelo_plugin_error_t error
+    pomelo_webrtc_session_t * session
 );
 
 
+/// @brief Destroy a session
+void POMELO_PLUGIN_CALL pomelo_webrtc_plugin_session_destroy(
+    pomelo_plugin_t * plugin,
+    pomelo_session_t * native_session
+);
+
+
+/// @brief Disconnect a session
 void POMELO_PLUGIN_CALL pomelo_webrtc_plugin_session_disconnect(
     pomelo_plugin_t * plugin,
     pomelo_session_t * native_session
 );
 
 
+/// @brief Get the RTT of a session
 void POMELO_PLUGIN_CALL pomelo_webrtc_plugin_session_get_rtt(
     pomelo_plugin_t * plugin,
     pomelo_session_t * native_session,
@@ -33,6 +40,7 @@ void POMELO_PLUGIN_CALL pomelo_webrtc_plugin_session_get_rtt(
 );
 
 
+/// @brief Set the mode of a session
 int POMELO_PLUGIN_CALL pomelo_webrtc_plugin_session_set_mode(
     pomelo_plugin_t * plugin,
     pomelo_session_t * native_session,
@@ -47,17 +55,17 @@ int POMELO_PLUGIN_CALL pomelo_webrtc_plugin_session_set_mode(
 /// @brief Initialize plugin part of session
 int pomelo_webrtc_session_plugin_init(pomelo_webrtc_session_t * session);
 
-/// @brief Finalize plugin part of session
-void pomelo_webrtc_session_plugin_finalize(pomelo_webrtc_session_t * session);
+
+/// @brief Cleanup plugin part of session
+void pomelo_webrtc_session_plugin_cleanup(pomelo_webrtc_session_t * session);
+
 
 /// @brief Close plugin session. This will emit disconnected event on native
 void pomelo_webrtc_session_plugin_close(pomelo_webrtc_session_t * session);
 
+
 /// @brief Open plugin session. This will emit connected event on native
-void pomelo_webrtc_session_plugin_open(
-    pomelo_webrtc_session_t * session,
-    pomelo_address_t * address
-);
+void pomelo_webrtc_session_plugin_open(pomelo_webrtc_session_t * session);
 
 /* -------------------------------------------------------------------------- */
 /*                                Private APIs                                */
@@ -69,10 +77,12 @@ void pomelo_webrtc_session_plugin_on_created(
     pomelo_session_t * native_session
 );
 
+
 /// @brief Process disconnect request from native side
 void pomelo_webrtc_session_plugin_process_disconnect(
     pomelo_webrtc_session_t * session
 );
+
 
 /// @brief Destroy the native session
 void pomelo_webrtc_session_plugin_destroy_native_session(

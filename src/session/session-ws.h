@@ -39,11 +39,14 @@ int pomelo_webrtc_session_ws_init(
     rtc_websocket_client_t * ws_client
 );
 
-/// @brief Finalize associated websocket client with session
-void pomelo_webrtc_session_ws_finalize(pomelo_webrtc_session_t * session);
+
+/// @brief Cleanup associated websocket client with session
+void pomelo_webrtc_session_ws_cleanup(pomelo_webrtc_session_t * session);
+
 
 /// @brief Close WS part of session
 void pomelo_webrtc_session_ws_close(pomelo_webrtc_session_t * session);
+
 
 /// @brief Send description to client
 void pomelo_webrtc_session_ws_send_description(
@@ -52,6 +55,7 @@ void pomelo_webrtc_session_ws_send_description(
     const char * type
 );
 
+
 /// @brief Send candidate to client
 void pomelo_webrtc_session_ws_send_candidate(
     pomelo_webrtc_session_t * session,
@@ -59,8 +63,10 @@ void pomelo_webrtc_session_ws_send_candidate(
     const char * mid
 );
 
+
 /// @brief Send ready signal
 void pomelo_webrtc_session_ws_send_ready(pomelo_webrtc_session_t * session);
+
 
 /// @brief Send connected signal
 void pomelo_webrtc_session_ws_send_connected(pomelo_webrtc_session_t * session);
@@ -76,16 +82,19 @@ void pomelo_webrtc_session_ws_recv_auth(
     size_t auth_length
 );
 
+
 /// @brief Process auth result
 void pomelo_webrtc_session_ws_auth_result(
     pomelo_webrtc_session_t * session,
     pomelo_plugin_token_info_t * info
 );
 
+
 /// @brief Send auth success
 void pomelo_webrtc_session_ws_send_auth_success(
     pomelo_webrtc_session_t * session
 );
+
 
 /// @brief Process when received description from client
 void pomelo_webrtc_session_ws_recv_description(
@@ -94,12 +103,14 @@ void pomelo_webrtc_session_ws_recv_description(
     const char * type
 );
 
+
 /// @brief Process when receive candiate from client
 void pomelo_webrtc_session_ws_recv_candidate(
     pomelo_webrtc_session_t * session,
     const char * cand,
     const char * mid
 );
+
 
 /// @brief Process the message
 void pomelo_webrtc_session_ws_process_message(
@@ -108,12 +119,14 @@ void pomelo_webrtc_session_ws_process_message(
     size_t size
 );
 
+
 /// @brief Process WebSocket message when session state is authenticating
 void pomelo_webrtc_session_ws_on_message_unauthenticated(
     pomelo_webrtc_session_t * session,
     const char * message,
     size_t message_length
 );
+
 
 /// @brief Process WebSocket message when session state is either exchanging or
 /// connected
@@ -123,6 +136,7 @@ void pomelo_webrtc_session_ws_on_message_authenticated(
     size_t message_length
 );
 
+
 /// @brief Process the description message
 void pomelo_webrtc_session_ws_process_description_message(
     pomelo_webrtc_session_t * session,
@@ -130,12 +144,14 @@ void pomelo_webrtc_session_ws_process_description_message(
     size_t size
 );
 
+
 /// @brief Process the candidate message
 void pomelo_webrtc_session_ws_process_candidate_message(
     pomelo_webrtc_session_t * session,
     const char * message,
     size_t size
 );
+
 
 /// @brief Process when WS is closed
 void pomelo_webrtc_session_ws_on_closed(

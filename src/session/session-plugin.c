@@ -3,6 +3,7 @@
 #include "channel/channel.h"
 #include "socket/socket.h"
 #include "session-plugin.h"
+#include "utils/common-macro.h"
 
 
 /* -------------------------------------------------------------------------- */
@@ -26,17 +27,20 @@ static void pomelo_webrtc_plugin_session_create_callback(
 
 void POMELO_PLUGIN_CALL pomelo_webrtc_plugin_session_create(
     pomelo_plugin_t * plugin,
-    pomelo_socket_t * native_socket,
-    pomelo_session_t * native_session,
-    void * callback_data,
-    pomelo_plugin_error_t error
+    pomelo_webrtc_session_t * session
 ) {
     assert(plugin != NULL);
-    (void) native_socket;
-    (void) error;
+    assert(session != NULL);
+
+    pomelo_session_t * native_session = plugin->session_create(
+        plugin,
+        session->socket->native_socket,
+        session->client_id,
+        &session->address
+    );
 
     pomelo_webrtc_variant_t args[] = {
-        { .ptr = callback_data },
+        { .ptr = session },
         { .ptr = native_session }
     };
 
@@ -47,6 +51,18 @@ void POMELO_PLUGIN_CALL pomelo_webrtc_plugin_session_create(
         POMELO_ARRAY_LENGTH(args),
         args
     );
+}
+
+
+void POMELO_PLUGIN_CALL pomelo_webrtc_plugin_session_destroy(
+    pomelo_plugin_t * plugin,
+    pomelo_session_t * native_session
+) {
+    assert(plugin != NULL);
+    assert(native_session != NULL);
+
+    // Destroy the native session
+    plugin->session_destroy(plugin, native_session);
 }
 
 
@@ -167,7 +183,7 @@ int pomelo_webrtc_session_plugin_init(pomelo_webrtc_session_t * session) {
 }
 
 
-void pomelo_webrtc_session_plugin_finalize(pomelo_webrtc_session_t * session) {
+void pomelo_webrtc_session_plugin_cleanup(pomelo_webrtc_session_t * session) {
     assert(session != NULL);
     pomelo_webrtc_session_plugin_destroy_native_session(session);
 }
@@ -179,12 +195,8 @@ void pomelo_webrtc_session_plugin_close(pomelo_webrtc_session_t * session) {
 }
 
 
-void pomelo_webrtc_session_plugin_open(
-    pomelo_webrtc_session_t * session,
-    pomelo_address_t * address
-) {
+void pomelo_webrtc_session_plugin_open(pomelo_webrtc_session_t * session) {
     assert(session != NULL);
-    assert(address != NULL);
     assert(!session->native_session);
 
     pomelo_plugin_t * plugin = session->context->plugin;
@@ -192,14 +204,15 @@ void pomelo_webrtc_session_plugin_open(
     // Ref this session until native plugin call done
     pomelo_webrtc_session_ref(session);
 
-    plugin->session_create(
+    int ret = plugin->executor_submit(
         plugin,
-        session->socket->native_socket,
-        session->client_id,
-        address,
-        session, // private data
-        session  // callback data
+        (pomelo_plugin_task_callback) pomelo_webrtc_plugin_session_create,
+        session
     );
+    if (ret != 0) {
+        // Failed to submit task, unref this session
+        pomelo_webrtc_session_unref(session);
+    }
 
     // => pomelo_webrtc_session_plugin_on_created
 }
@@ -220,8 +233,12 @@ void pomelo_webrtc_session_plugin_on_created(
         return;
     }
 
+    pomelo_plugin_t * plugin = session->context->plugin;
+
     // Set associated native session and dispatch connected
     session->native_session = native_session;
+    plugin->session_set_private(plugin, native_session, session);
+
     pomelo_webrtc_session_on_connected(session);
 }
 
@@ -240,13 +257,14 @@ void pomelo_webrtc_session_plugin_destroy_native_session(
     pomelo_webrtc_session_t * session
 ) {
     assert(session != NULL);
-    if (!session->native_session) {
-        return;
-    }
+    if (!session->native_session) return;
 
     pomelo_plugin_t * plugin = session->context->plugin;
+    plugin->executor_submit(
+        plugin,
+        (pomelo_plugin_task_callback) pomelo_webrtc_plugin_session_destroy,
+        session->native_session
+    );
 
-    // Emit disconnect here
-    plugin->session_destroy(plugin, session->native_session);
     session->native_session = NULL;
 }

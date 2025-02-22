@@ -96,9 +96,8 @@ bool RTCWSClient::send(const char * message) {
 bool RTCWSClient::send(const uint8_t * message, size_t length) {
     assert(message != nullptr);
     auto data = reinterpret_cast<const std::byte *>(message);
-
     try {
-        return ws_client->send(rtc::binary(data, data + length));
+        return ws_client->send(data, length);
     } catch (std::exception ex) {
         context->handle_exception(ex);
         return false;

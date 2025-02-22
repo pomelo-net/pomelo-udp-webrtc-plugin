@@ -2,10 +2,7 @@
 #include <string.h>
 #include "uv.h"
 #include "base/payload.h"
-#include "codec/packed.h"
-#include "utils/base64.h"
-#include "utils/string-buffer.h"
-#include "utils/macro.h"
+#include "utils/common-macro.h"
 #include "session.h"
 #include "socket/socket.h"
 #include "context.h"
@@ -33,6 +30,7 @@
 #define SYS_PONG_MIN_LENGTH 3
 #define SYS_PONG_MAX_LENGTH SYS_PONG_DATA_CAPACITY
 
+#define SESSIONS_INIT_CHANNELS_CAPACITY 64
 
 /// Activate the session
 #define pomelo_webrtc_session_set_active(session)                              \
@@ -53,24 +51,54 @@ POMELO_UNSET_FLAG((session)->flags, POMELO_WEBRTC_SESSION_FLAG_ACTIVE)
 /*                               Public APIs                                  */
 /* -------------------------------------------------------------------------- */
 
-pomelo_webrtc_session_t * pomelo_webrtc_session_create(
-    pomelo_webrtc_socket_t * socket,
-    rtc_websocket_client_t * ws_client
-) {
-    assert(socket != NULL);
-    assert(ws_client != NULL);
 
-    // Acquire new session
-    pomelo_webrtc_session_t * session =
-        pomelo_pool_acquire(socket->context->session_pool);
-    if (!session) {
-        return NULL; // Failed to acquire new session from pool
+int pomelo_webrtc_session_on_alloc(
+    pomelo_webrtc_session_t * session,
+    pomelo_webrtc_context_t * context
+) {
+    assert(session != NULL);
+    assert(context != NULL);
+    session->context = context;
+
+    pomelo_allocator_t * allocator = context->allocator;
+
+    pomelo_array_options_t options = {
+        .allocator = allocator,
+        .element_size = sizeof(pomelo_webrtc_channel_t *),
+        .initial_capacity = SESSIONS_INIT_CHANNELS_CAPACITY
+    };
+
+    session->channels = pomelo_array_create(&options);
+    if (!session->channels) return -1;
+    return 0;
+}
+
+
+void pomelo_webrtc_session_on_free(pomelo_webrtc_session_t * session) {
+    assert(session != NULL);
+    session->context = NULL;
+
+    if (session->channels) {
+        pomelo_array_destroy(session->channels);
+        session->channels = NULL;
     }
+}
+
+
+int pomelo_webrtc_session_init(
+    pomelo_webrtc_session_t * session,
+    pomelo_webrtc_session_info_t * info
+) {
+    assert(session != NULL);
+    assert(info != NULL);
+
+    pomelo_webrtc_socket_t * socket = info->socket;
+    rtc_websocket_client_t * ws_client = info->ws_client;
 
     // Initialize reference
     pomelo_reference_init(
         &session->ref,
-        (pomelo_ref_finalize_cb) pomelo_webrtc_session_destroy
+        (pomelo_ref_finalize_cb) pomelo_webrtc_session_on_finalize
     );
 
     // Update properties and initialize websocket
@@ -82,34 +110,53 @@ pomelo_webrtc_session_t * pomelo_webrtc_session_create(
 
     // Initialize Websocket
     int ret = pomelo_webrtc_session_ws_init(session, ws_client);
-    if (ret < 0) {
-        pomelo_webrtc_session_destroy(session);
-        return NULL;
-    }
+    if (ret < 0) return -1;
 
     // Initialize PC
     ret = pomelo_webrtc_session_pc_init(session);
-    if (ret < 0) {
-        pomelo_webrtc_session_destroy(session);
-        return NULL;
-    }
+    if (ret < 0) return -1;
 
     // Initialize session plugin
     ret = pomelo_webrtc_session_plugin_init(session);
-    if (ret < 0) {
-        pomelo_webrtc_session_destroy(session);
-        return NULL;
-    }
+    if (ret < 0) return -1;
 
     // Schedule for authenticating
     pomelo_webrtc_task_t * task =
         pomelo_webrtc_session_schedule_timeout(session, POMELO_AUTH_TIMEOUT_MS);
-    if (!task) {
-        pomelo_webrtc_session_destroy(session);
-        return NULL;
+    if (!task) return -1;
+
+    return 0;
+}
+
+
+void pomelo_webrtc_session_cleanup(pomelo_webrtc_session_t * session) {
+    assert(session != NULL);
+
+    pomelo_webrtc_socket_t * socket = session->socket;
+    pomelo_webrtc_context_t * context = session->context;
+
+    // Finalize all components
+    pomelo_webrtc_session_ws_cleanup(session);
+    pomelo_webrtc_session_pc_cleanup(session);
+    pomelo_webrtc_session_plugin_cleanup(session);
+
+    if (session->task_timeout) {
+        pomelo_webrtc_context_unschedule_task(context, session->task_timeout);
+        session->task_timeout = NULL;
     }
 
-    return session;
+    pomelo_array_clear(session->channels);
+    session->system_channel = NULL;
+    session->flags = 0;
+    session->socket = NULL;
+    session->list_entry = NULL;
+    session->opened_channels = 0;
+    session->ping_task = NULL;
+    pomelo_rtt_calculator_init(&session->rtt);
+    session->client_id = 0;
+
+    // This session no longer references the socket
+    pomelo_webrtc_socket_unref(socket);
 }
 
 
@@ -321,30 +368,10 @@ void pomelo_webrtc_session_recv_ready(pomelo_webrtc_session_t * session) {
 /*                                Private APIs                                */
 /* -------------------------------------------------------------------------- */
 
-void pomelo_webrtc_session_destroy(pomelo_webrtc_session_t * session) {
+void pomelo_webrtc_session_on_finalize(pomelo_webrtc_session_t * session) {
     assert(session != NULL);
-    
-    pomelo_webrtc_socket_t * socket = session->socket;
-    pomelo_webrtc_context_t * context = session->context;
-
-    // Finalize all components
-    pomelo_webrtc_session_ws_finalize(session);
-    pomelo_webrtc_session_pc_finalize(session);
-    pomelo_webrtc_session_plugin_finalize(session);
-    
-    pomelo_array_clear(session->channels);
-    session->system_channel = NULL;
-
     // Release the session
-    pomelo_pool_release(context->session_pool, session);
-
-    if (session->task_timeout) {
-        pomelo_webrtc_context_unschedule_task(context, session->task_timeout);
-        session->task_timeout = NULL;
-    }
-
-    // This session no longer references the socket
-    pomelo_webrtc_socket_unref(socket);
+    pomelo_webrtc_context_release_session(session->context, session);
 }
 
 
@@ -411,14 +438,14 @@ void pomelo_webrtc_session_send_ping(pomelo_webrtc_session_t * session) {
         pomelo_rtt_calculator_next_entry(&session->rtt, now);
 
     uint64_t ping_sequence = entry->sequence;
-    size_t bytes = pomelo_codec_calc_packed_uint64_bytes(ping_sequence);
+    size_t bytes = pomelo_payload_calc_packed_uint64_bytes(ping_sequence);
 
     uint8_t data[SYS_PING_DATA_CAPACITY];
     pomelo_payload_t payload;
 
     payload.position = 0;
     payload.capacity = SYS_PING_DATA_CAPACITY;
-    payload.buffer = data;
+    payload.data = data;
 
     // Build the header byte
     uint8_t header = (
@@ -427,10 +454,10 @@ void pomelo_webrtc_session_send_ping(pomelo_webrtc_session_t * session) {
     );
 
     // Header byte
-    pomelo_payload_write_uint8(&payload, header);
+    pomelo_payload_write_uint8_unsafe(&payload, header);
 
     // Sequence number of ping
-    pomelo_codec_write_packed_uint64(&payload, bytes, ping_sequence);
+    pomelo_payload_write_packed_uint64_unsafe(&payload, bytes, ping_sequence);
 
     // Send data
     pomelo_webrtc_channel_send(session->system_channel, data, bytes + 1);
@@ -447,16 +474,16 @@ void pomelo_webrtc_session_send_pong(
     (void) recv_time;
 
     size_t sequence_bytes =
-        pomelo_codec_calc_packed_uint64_bytes(pong_sequence);
+        pomelo_payload_calc_packed_uint64_bytes(pong_sequence);
     size_t socket_time_bytes =
-        pomelo_codec_calc_packed_uint64_bytes(socket_time);
+        pomelo_payload_calc_packed_uint64_bytes(socket_time);
 
     uint8_t data[SYS_PONG_DATA_CAPACITY];
     pomelo_payload_t payload;
 
     payload.position = 0;
     payload.capacity = SYS_PONG_DATA_CAPACITY;
-    payload.buffer = data;
+    payload.data = data;
 
     // Build the header byte
     uint8_t header_byte = (
@@ -466,13 +493,17 @@ void pomelo_webrtc_session_send_pong(
     );
 
     // Header byte
-    pomelo_payload_write_uint8(&payload, header_byte);
+    pomelo_payload_write_uint8_unsafe(&payload, header_byte);
 
     // Sequence number of ping
-    pomelo_codec_write_packed_uint64(&payload, sequence_bytes, pong_sequence);
+    pomelo_payload_write_packed_uint64_unsafe(
+        &payload, sequence_bytes, pong_sequence
+    );
 
     // Socket time
-    pomelo_codec_write_packed_uint64(&payload, socket_time_bytes, socket_time);
+    pomelo_payload_write_packed_uint64_unsafe(
+        &payload, socket_time_bytes, socket_time
+    );
 
     // Send data
     pomelo_webrtc_channel_send(
@@ -519,10 +550,10 @@ void pomelo_webrtc_session_process_ping(
     pomelo_payload_t payload;
     payload.capacity = length - 1; // Skip header
     payload.position = 0;
-    payload.buffer = (uint8_t *) (message + 1); // Skip header
+    payload.data = (uint8_t *) (message + 1); // Skip header
 
     uint64_t ping_sequence = 0;
-    int ret = pomelo_codec_read_packed_uint64(
+    int ret = pomelo_payload_read_packed_uint64(
         &payload,
         sequence_bytes,
         &ping_sequence
@@ -562,10 +593,10 @@ void pomelo_webrtc_session_process_pong(
     pomelo_payload_t payload;
     payload.capacity = length - 1;
     payload.position = 0;
-    payload.buffer = (uint8_t *) (message + 1); // Skip header
+    payload.data = (uint8_t *) (message + 1); // Skip header
 
     uint64_t ping_sequence = 0;
-    int ret = pomelo_codec_read_packed_uint64(
+    int ret = pomelo_payload_read_packed_uint64(
         &payload,
         sequence_bytes,
         &ping_sequence
@@ -582,27 +613,39 @@ int pomelo_webrtc_session_create_channels(pomelo_webrtc_session_t * session) {
 
     // Create channels
     pomelo_webrtc_socket_t * socket = session->socket;
-
+    pomelo_webrtc_context_t * context = session->context;
+    pomelo_array_t * channels = session->channels;
     pomelo_array_t * modes = socket->channel_modes;
     size_t nchannels = modes->size;
 
+    // Resize the channels array
+    int ret = pomelo_array_resize(channels, nchannels);
+    if (ret < 0) return -1; // Failed to resize the channels array
+
+    // Fill the channels array with NULL
+    pomelo_array_fill_zero(channels);
+
     pomelo_webrtc_channel_t * channel;
     pomelo_channel_mode mode;
+    pomelo_webrtc_channel_info_t info;
+    info.session = session;
+
+    // Create channels
     for (size_t i = 0; i < nchannels; i++) {
         pomelo_array_get(modes, i, &mode);
-        channel = pomelo_webrtc_channel_create(session, i, mode);
-        if (!channel) { // Failed to create new channel
-            return -1;
-        }
-        pomelo_array_append(session->channels, channel);
+        info.channel_index = i;
+        info.channel_mode = mode;
+        channel = pomelo_webrtc_context_acquire_channel(context, &info);
+        if (!channel) return -1;
+
+        pomelo_array_set(channels, i, channel);
     }
 
     // Create system channel
-    session->system_channel = pomelo_webrtc_channel_create(
-        session,
-        POMELO_WEBRTC_CHANNEL_SYSTEM_INDEX,
-        POMELO_CHANNEL_MODE_UNRELIABLE
-    );
+    info.channel_index = POMELO_WEBRTC_CHANNEL_SYSTEM_INDEX;
+    info.channel_mode = POMELO_CHANNEL_MODE_UNRELIABLE;
+    session->system_channel =
+        pomelo_webrtc_context_acquire_channel(context, &info);
     if (!session->system_channel) return -1; // Failed to create system channel
 
     // Wait for opened channels
@@ -616,11 +659,11 @@ void pomelo_webrtc_session_on_ready(pomelo_webrtc_session_t * session) {
     // Clear connect timeout scheduler
     pomelo_webrtc_session_unschedule_timeout(session);
 
-    pomelo_address_t address = { 0 };
-    pomelo_webrtc_session_pc_address(session, &address);
+    // Update the address of this session
+    pomelo_webrtc_session_pc_address(session, &session->address);
 
     // Open native session
-    pomelo_webrtc_session_plugin_open(session, &address);
+    pomelo_webrtc_session_plugin_open(session);
     // => pomelo_webrtc_session_on_connected
 }
 
@@ -640,7 +683,6 @@ void pomelo_webrtc_session_on_connected(pomelo_webrtc_session_t * session) {
 
     // Send ready message
     pomelo_webrtc_session_ws_send_connected(session);
-
     // Well done, we have the connection
 }
 

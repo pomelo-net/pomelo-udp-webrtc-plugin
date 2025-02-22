@@ -27,8 +27,8 @@ int pomelo_webrtc_socket_wss_init(
 );
 
 
-/// @brief Finalize websocket server part of socket
-void pomelo_webrtc_socket_wss_finalize(pomelo_webrtc_socket_t * socket);
+/// @brief Cleanup websocket server part of socket
+void pomelo_webrtc_socket_wss_cleanup(pomelo_webrtc_socket_t * socket);
 
 
 /// @brief Close the websocket server

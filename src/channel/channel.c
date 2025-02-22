@@ -4,11 +4,12 @@
 #include "utils/macro.h"
 #include "utils/array.h"
 #include "utils/string-buffer.h"
+#include "utils/common-macro.h"
 #include "channel.h"
 #include "context.h"
 #include "session/session.h"
 #include "channel-dc.h"
-
+#include "channel-plugin.h"
 
 
 #define pomelo_webrtc_channel_is_active(channel)                               \
@@ -25,41 +26,64 @@ POMELO_UNSET_FLAG((channel)->flags, POMELO_WEBRTC_CHANNEL_FLAG_ACTIVE)
 /*                                Public APIs                                 */
 /* -------------------------------------------------------------------------- */
 
-pomelo_webrtc_channel_t * pomelo_webrtc_channel_create(
-    pomelo_webrtc_session_t * session,
-    size_t channel_index,
-    pomelo_channel_mode channel_mode
+
+int pomelo_webrtc_channel_on_alloc(
+    pomelo_webrtc_channel_t * channel,
+    pomelo_webrtc_context_t * context
 ) {
-    assert(session != NULL);
+    assert(channel != NULL);
+    assert(context != NULL);
+    channel->context = context;
+    return 0;
+}
 
-    pomelo_webrtc_channel_t * channel =
-        pomelo_pool_acquire(session->context->channel_pool);
-    if (!channel) {
-        return NULL; // Failed to acquire new channel
-    }
 
+void pomelo_webrtc_channel_on_free(pomelo_webrtc_channel_t * channel) {
+    assert(channel != NULL);
+    channel->context = NULL;
+}
+
+
+int pomelo_webrtc_channel_init(
+    pomelo_webrtc_channel_t * channel,
+    pomelo_webrtc_channel_info_t * info
+) {
+    assert(channel != NULL);
+    assert(info != NULL);
+    
     // Init reference
     pomelo_reference_init(
         &channel->ref,
-        (pomelo_ref_finalize_cb) pomelo_webrtc_channel_destroy
+        (pomelo_ref_finalize_cb) pomelo_webrtc_channel_on_finalize
     );
     
     // Reference the session
-    pomelo_webrtc_session_ref(session);
+    channel->session = info->session;
+    pomelo_webrtc_session_ref(info->session);
 
-    channel->session = session;
-    channel->index = channel_index;
-    channel->mode = channel_mode;
+    channel->index = info->channel_index;
+    channel->mode = info->channel_mode;
     pomelo_webrtc_channel_set_active(channel);
 
     // Initialize DC part of channel
     int ret = pomelo_webrtc_channel_dc_init(channel);
-    if (ret < 0) {
-        pomelo_webrtc_channel_destroy(channel);
-        return NULL;
-    }
+    if (ret < 0) return -1;
+    return 0;
+}
 
-    return channel;
+
+void pomelo_webrtc_channel_cleanup(pomelo_webrtc_channel_t * channel) {
+    assert(channel != NULL);
+    // Cleanup dc part
+    pomelo_webrtc_channel_dc_cleanup(channel);
+
+    // Unref the session
+    pomelo_webrtc_session_unref(channel->session);
+    channel->session = NULL;
+
+    channel->flags = 0;
+    channel->index = 0;
+    channel->mode = POMELO_CHANNEL_MODE_UNRELIABLE;
 }
 
 
@@ -91,9 +115,7 @@ void pomelo_webrtc_channel_send(
 ) {
     assert(channel != NULL);
     assert(data != NULL);
-    if (length == 0) {
-        return;
-    }
+    if (length == 0) return;
 
     // Send message and unref the buffer
     rtc_data_channel_send(channel->outgoing_dc, data, length);
@@ -151,22 +173,73 @@ void pomelo_webrtc_channel_send_buffer(
 }
 
 
+void pomelo_webrtc_channel_receive(
+    pomelo_webrtc_channel_t * channel,
+    rtc_buffer_t * message
+) {
+    assert(channel != NULL);
+    assert(message != NULL);
+
+    // Ref this channel until the messasge is processed completely
+    pomelo_webrtc_channel_ref(channel);
+
+    // Keep the reference of message and submit command
+    rtc_buffer_ref(message);
+
+    pomelo_webrtc_context_t * context = channel->context;
+
+    pomelo_webrtc_recv_command_t * command =
+        pomelo_pool_acquire(context->recv_command_pool, NULL);
+    if (!command) {
+        // Failed to allocate command
+        rtc_buffer_unref(message);
+        pomelo_webrtc_channel_unref(channel);
+        return;
+    }
+
+    command->message = message;
+    command->native_session = channel->session->native_session;
+    command->channel = channel;
+
+    int ret = context->plugin->executor_submit(
+        context->plugin,
+        (pomelo_plugin_task_callback) pomelo_webrtc_plugin_session_receive,
+        command
+    );
+    if (ret < 0) {
+        // Failed to submit command
+        rtc_buffer_unref(message);
+        pomelo_webrtc_channel_unref(channel);
+        pomelo_pool_release(context->recv_command_pool, command);
+        return;
+    }
+
+    // => pomelo_webrtc_channel_receive_complete
+}
+
+
 /* -------------------------------------------------------------------------- */
 /*                               Private APIs                                 */
 /* -------------------------------------------------------------------------- */
 
-void pomelo_webrtc_channel_destroy(
-    pomelo_webrtc_channel_t * channel
+void pomelo_webrtc_channel_receive_complete(
+    pomelo_webrtc_channel_t * channel,
+    pomelo_webrtc_recv_command_t * command
 ) {
     assert(channel != NULL);
-    pomelo_webrtc_session_t * session = channel->session;
+    assert(command != NULL);
 
-    // Finalize dc part
-    pomelo_webrtc_channel_dc_finalize(channel);
+    // Unref the message and channel, then release the command
+    pomelo_webrtc_context_t * context = channel->context;
 
+    rtc_buffer_unref(command->message);
+    pomelo_webrtc_channel_unref(channel);
+    pomelo_pool_release(context->recv_command_pool, command);
+}
+
+
+void pomelo_webrtc_channel_on_finalize(pomelo_webrtc_channel_t * channel) {
+    assert(channel != NULL);
     // Release the channel
-    pomelo_pool_release(channel->context->channel_pool, channel);
-
-    // Finally, unref the session
-    pomelo_webrtc_session_unref(session);
+    pomelo_webrtc_context_release_channel(channel->context, channel);
 }

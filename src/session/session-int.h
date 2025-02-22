@@ -54,12 +54,14 @@ void pomelo_webrtc_session_send_local_candidate(
     const char * mid
 );
 
+
 /// @brief Send the local description
 void pomelo_webrtc_session_send_local_description(
     pomelo_webrtc_session_t * session,
     const char * sdp,
     const char * type
 );
+
 
 /// @brief Handle remote description
 void pomelo_webrtc_session_recv_remote_description(
@@ -68,12 +70,14 @@ void pomelo_webrtc_session_recv_remote_description(
     const char * type
 );
 
+
 /// @brief Handle remote candidate
 void pomelo_webrtc_session_recv_remote_candidate(
     pomelo_webrtc_session_t * session,
     const char * cand,
     const char * mid
 );
+
 
 /// @brief Handle ready signal from client
 void pomelo_webrtc_session_recv_ready(pomelo_webrtc_session_t * session);
@@ -83,21 +87,26 @@ void pomelo_webrtc_session_recv_ready(pomelo_webrtc_session_t * session);
 /* -------------------------------------------------------------------------- */
 
 /// @brief Delete session
-void pomelo_webrtc_session_destroy(pomelo_webrtc_session_t * session);
+void pomelo_webrtc_session_on_finalize(pomelo_webrtc_session_t * session);
+
 
 /// @brief Start sending ping
 void pomelo_webrtc_session_start_ping(pomelo_webrtc_session_t * session);
 
+
 /// @brief Stop sending ping
 void pomelo_webrtc_session_stop_ping(pomelo_webrtc_session_t * session);
+
 
 /// @brief Process when all data channels have opened
 void pomelo_webrtc_session_on_all_channels_opened(
     pomelo_webrtc_session_t * session
 );
 
+
 /// @brief Send ping message
 void pomelo_webrtc_session_send_ping(pomelo_webrtc_session_t * session);
+
 
 /// @brief Send pong message
 void pomelo_webrtc_session_send_pong(
@@ -107,12 +116,14 @@ void pomelo_webrtc_session_send_pong(
     uint64_t socket_time
 );
 
+
 /// @brief Receive ping message
 void pomelo_webrtc_session_recv_pong(
     pomelo_webrtc_session_t * session,
     uint64_t ping_sequence,
     uint64_t recv_time
 );
+
 
 /// @brief Process ping request
 void pomelo_webrtc_session_process_ping(
@@ -122,6 +133,7 @@ void pomelo_webrtc_session_process_ping(
     uint64_t recv_time
 );
 
+
 /// @brief Process ping response
 void pomelo_webrtc_session_process_pong(
     pomelo_webrtc_session_t * session,
@@ -130,15 +142,19 @@ void pomelo_webrtc_session_process_pong(
     uint64_t recv_time
 );
 
+
 /// @brief Create channels
 int pomelo_webrtc_session_create_channels(pomelo_webrtc_session_t * session);
+
 
 /// @brief Process when all data channels are opened and received ready signal
 /// from client
 void pomelo_webrtc_session_on_ready(pomelo_webrtc_session_t * session);
 
+
 /// @brief Process when session is ready and native session is created
 void pomelo_webrtc_session_on_connected(pomelo_webrtc_session_t * session);
+
 
 /// @brief Process connect timeout
 void pomelo_webrtc_session_on_timeout(
@@ -146,11 +162,13 @@ void pomelo_webrtc_session_on_timeout(
     pomelo_webrtc_variant_t * args
 );
 
+
 /// @brief Schedule timeout for specific amount of time
 pomelo_webrtc_task_t * pomelo_webrtc_session_schedule_timeout(
     pomelo_webrtc_session_t * session,
     uint64_t timeout_ms
 );
+
 
 /// @brief Unschedule timeout
 void pomelo_webrtc_session_unschedule_timeout(

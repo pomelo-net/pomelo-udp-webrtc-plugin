@@ -18,6 +18,18 @@ extern "C" {
 #define POMELO_SYSTEM_CHANNEL_LABEL "system"
 
 
+struct pomelo_webrtc_channel_info_s {
+    /// @brief Containing session
+    pomelo_webrtc_session_t * session;
+
+    /// @brief Channel index
+    size_t channel_index;
+
+    /// @brief Channel mode
+    pomelo_channel_mode channel_mode;
+};
+
+
 struct pomelo_webrtc_channel_s {
     /// @brief Reference
     pomelo_reference_t ref;
@@ -49,18 +61,35 @@ struct pomelo_webrtc_channel_s {
 /*                                Public APIs                                 */
 /* -------------------------------------------------------------------------- */
 
-/// @brief Create new channel
-pomelo_webrtc_channel_t * pomelo_webrtc_channel_create(
-    pomelo_webrtc_session_t * session,
-    size_t channel_index,
-    pomelo_channel_mode channel_mode
+/// @brief On alloc the channel
+int pomelo_webrtc_channel_on_alloc(
+    pomelo_webrtc_channel_t * channel,
+    pomelo_webrtc_context_t * context
 );
+
+
+/// @brief On free the channel
+void pomelo_webrtc_channel_on_free(pomelo_webrtc_channel_t * channel);
+
+
+/// @brief Initialize the channel
+int pomelo_webrtc_channel_init(
+    pomelo_webrtc_channel_t * channel,
+    pomelo_webrtc_channel_info_t * info
+);
+
+
+/// @brief Cleanup the channel
+void pomelo_webrtc_channel_cleanup(pomelo_webrtc_channel_t * channel);
+
 
 /// @brief Close the session
 void pomelo_webrtc_channel_close(pomelo_webrtc_channel_t * channel);
 
+
 /// @brief Enable receiving messages
 void pomelo_webrtc_channel_enable_receiving(pomelo_webrtc_channel_t * channel);
+
 
 /// @brief Send message through this channel
 void pomelo_webrtc_channel_send(
@@ -69,11 +98,13 @@ void pomelo_webrtc_channel_send(
     size_t length
 );
 
+
 /// @brief Set the channel mode
 void pomelo_webrtc_channel_set_mode(
     pomelo_webrtc_channel_t * channel,
     pomelo_channel_mode mode
 );
+
 
 /// @brief Set the incoming DC
 void pomelo_webrtc_channel_set_incoming_data_channel(
