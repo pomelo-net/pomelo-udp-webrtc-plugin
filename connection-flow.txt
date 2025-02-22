@@ -1,0 +1,60 @@
+[Server] Open WS Server
+[Client] Establish WS connection
+[Server] Send "AUTH" over WS
+[Client] Send "AUTH|<Connect Token Base64> over WS
+[?] Check the connect token information (I)
+
+(I) => If auth is ok:
+[Server] Send "AUTH|OK" over WS
+[Server] Create new RTC PC
+[Client] Create new RTC PC
+[Server] Exchange description & candidates over WS
+[Client] Exchange description & candidates over WS
+[Server] Listen for RTC State changed event
+(?) Check for the received state of RTC (II)
+
+(II) => If RTC state = connected:
+[Server] Send "RTC|OK" over WS and wait for "RTC|OK" from client
+[Client] Send "RTC|OK" over WS and wait for "RTC|OK" from server
+
+[!] After "RTC|OK" established in both client and server:
+[Client] Listen for opening channels
+[Server] Create data channels
+[Server] Create new native session => dispatch connected
+
+=> Done.
+
+(I) => If auth is failed:
+[Server] Send "AUTH|FAILED" and close the connection
+[Client] Receive "AUTH|FAILED" and close the connection
+
+(II) => If RTC state = failed:
+[Server] Send "RTC|FAILED" then disconnect WS and close RTC
+[Client] Receive "RTC|FAILED" then disconnect WS and close RTC
+
+(II) => If RTC state = disconnected:
+[Server] Close both RTC & WS
+[Client] Close both RTC & WS
+
+
+Init & close
+Socket:
+    WebSocketServer:
+        + Open: rtcCreateWebSocketServer
+        + Close: rtcDeleteWebSocketServer
+
+Session:
+    WebSocket:
+        + Close: rtcClose -> rtcDelete
+    
+    PeerConnection:
+        + Close:
+            + Channels: rtcClose -> rtcDelete
+            + rtcClosePeerConnection -> rtcDeletePeerConnection
+
++ Next step: Replace RTC C-API by own C-API
+
+
++ ConnectedState:
+    + All outgoing channels are opened
+    + Wait for connected signal from other side
